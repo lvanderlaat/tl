@@ -1,3 +1,9 @@
+.DS_Store
+add.sh
+example/SYNTH/
+example/channels.csv
+example/inventory.xml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -1,39 +1,39 @@
 io:
-  output_dir: .
-  overwrite: True
+    output_dir: .
+    overwrite: True
 projection:
-  epsg: 26961
+    epsg: 26961
 preprocess:
-  inventory: inventory.xml
+    inventory: inventory.xml
 features:
-  channels_csv: channels.csv
-  bands: [[0.03, 1], [1, 2], [2, 3], [0.03, 3]]
-  order: 1
-  datatype: eq
+    channels_csv: channels.csv
+    bands: [[0.03, 1], [1, 2], [2, 3], [0.03, 3]]
+    order: 1
+    datatype: eq
 dataset:
-  catalog: catalog.csv
-  magnitude_min: 2
-  magnitude_max: 5
-  n_events: 100
-  pre: 0
-  pos: 0
-  wfs_dir: WFS_EQ
+    catalog: catalog.csv
+    magnitude_min: 2
+    magnitude_max: 5
+    n_events: 100
+    pre: 0
+    pos: 0
+    wfs_dir: WFS_EQ
 synth:
-  Q: 50
-  f: 2
-  beta: 2309
-  alpha: 0.5
-  lonmin: -155.3339
-  lonmax: -155.1631
-  latmin: 19.3270
-  latmax: 19.4704
-  zmin: -10000
-  zmax: 2300
-  step: 100
-  z_plot: -1000
+    Q: 50
+    f: 2
+    beta: 2309
+    alpha: 0.5
+    lonmin: -155.3339
+    lonmax: -155.1631
+    latmin: 19.3270
+    latmax: 19.4704
+    zmin: -10000
+    zmax: 2300
+    step: 100
+    z_plot: -1000
 train:
-  test_size: 0.3
-  random_state: 0
-  data_file: FEATURES_EQ/data.csv
+    test_size: 0.3
+    random_state: 0
+    data_file: FEATURES_EQ/data.csv
 performance:
-  max_workers: 4
+    max_workers: 4
