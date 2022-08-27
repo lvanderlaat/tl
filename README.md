@@ -10,7 +10,7 @@ Go in the repository directory
 
 Create `conda` environmnet and install the `tl` with
     
-    $ `bash install.sh`
+    $ bash install.sh
 
 # Run the example
 
