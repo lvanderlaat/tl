@@ -89,7 +89,7 @@ def get_logger():
 
 def write_conf(c, folderpath):
     with open(os.path.join(folderpath, 'config.json'), 'w') as f:
-        json.dump(c, f, indent=4)
+        json.dump(c, f, indent=4, default=str)
 
 
 if __name__ == '__main__':

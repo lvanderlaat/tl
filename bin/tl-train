@@ -179,7 +179,7 @@ def main():
 
     # Error
     misfits, interval, stdev = tl.train.get_scores(y, y_pred)
-    logger.info(f'Test error: {int(misfits.mean())} m')
+    logger.info(f'Total error: {int(misfits.mean())} m')
     logger.info(f'Standard deviation (xyz): {stdev.astype(int)} m')
     logger.info(f'Prediction interval (xyz): {interval.astype(int)} m')
 
@@ -187,14 +187,14 @@ def main():
     df_true, df_pred = tl.train.results_to_df(y, y_pred, misfits, eventids)
 
     # Plots
-    fig = tl.plot.misfits_histograms(df_true, df_pred)
-    fig.savefig(os.path.join(folderpath, 'tot_misfits_histograms.pdf'))
+    # fig = tl.plot.misfits_histograms(df_true, df_pred)
+    # fig.savefig(os.path.join(folderpath, 'tot_misfits_histograms.pdf'))
 
-    fig = tl.plot.locs_test_sample(df_true, df_pred, sta)
-    fig.savefig(os.path.join(folderpath, 'tot_locs_sample.pdf'), dpi=300)
+    # fig = tl.plot.locs_test_sample(df_true, df_pred, sta)
+    # fig.savefig(os.path.join(folderpath, 'tot_locs_sample.pdf'), dpi=300)
 
-    fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=10)
-    fig.savefig(os.path.join(folderpath, 'tot_locs_all.pdf'), dpi=300)
+    # fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=10)
+    # fig.savefig(os.path.join(folderpath, 'tot_locs_all.pdf'), dpi=300)
 
     # Save the scaler and the model
     for name, obj in zip(

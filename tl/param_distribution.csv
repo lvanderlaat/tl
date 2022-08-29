@@ -1,0 +1,42 @@
+section,parameter,synth,get-wfs-eq,feature-extraction-eq,feature-extraction-tremor,train,predict
+io,output_dir,1,1,1,1,1,1
+io,overwrite,1,1,1,1,1,1
+projection,epsg,1,0,1,0,0,0
+preprocess,inventory,0,0,1,1,0,0
+preprocess,freqmin,0,0,1,1,0,0
+preprocess,freqmax,0,0,1,1,0,0
+preprocess,decimation_factor,0,0,1,1,0,0
+features,channels_csv,1,1,1,1,1,1
+features,bands,-1,0,1,1,1,1
+features,order,0,0,1,1,0,0
+features,datatype,0,0,1,1,0,0
+dataset,catalog,1,1,1,0,0,0
+dataset,magnitude_min,1,1,1,0,1,0
+dataset,magnitude_max,1,1,1,0,1,0
+dataset,n_events,1,1,1,0,1,0
+dataset,pre,0,1,0,0,0,0
+dataset,pos,0,1,0,0,0,0
+dataset,wfs_dir,0,0,1,1,0,0
+synth,Q,1,0,0,0,0,0
+synth,f,1,0,0,0,0,0
+synth,beta,1,0,0,0,0,0
+synth,alpha,1,0,0,0,0,0
+synth,lonmin,1,0,0,0,0,0
+synth,lonmax,1,0,0,0,0,0
+synth,latmin,1,0,0,0,0,0
+synth,latmax,1,0,0,0,0,0
+synth,zmin,1,0,0,0,0,0
+synth,zmax,1,0,0,0,0,0
+synth,step,1,0,0,0,0,0
+synth,z_plot,1,0,0,0,0,0
+train ,test_size,1,0,0,0,1,0
+train ,random_state,1,0,0,0,1,0
+train ,data_file,0,0,0,0,1,0
+performance,max_workers,0,1,1,1,0,0
+tremor,wfs_dir,0,0,0,1,0,0
+tremor,window_length,0,0,0,1,0,0
+tremor,overlap,0,0,0,1,0,0
+tremor,startdate,0,0,0,1,0,0
+tremor,enddate,0,0,0,1,0,0
+predict,model_dir,0,0,0,0,0,1
+predict,features_file,0,0,0,0,0,1

@@ -6,7 +6,7 @@ yes | conda create -n tl
 eval "$(conda shell.bash hook)"
 conda activate tl
 
-# Jupyter (only for running the exmample)
+# Jupyter (only for running the example, can be commented if not desired)
 yes | conda install -c conda-forge jupyterlab
 yes | conda install -c conda-forge jupyter_contrib_nbextensions
 yes | conda install -c conda-forge jupyter_nbextensions_configurator
@@ -20,9 +20,8 @@ yes | conda install -c anaconda pandas
 yes | conda install -c anaconda scikit-learn
 yes | conda install -c anaconda pyyaml
 yes | conda install -c conda-forge obspy
+yes | conda install -c anaconda scikit-image
 
-# pip packagers
+# pip packages
 pip install ray
 pip install -e .
-
-

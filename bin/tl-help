@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+
+
+"""
+"""
+
+
+# Python Standard Library
+import argparse
+import os
+
+# Other dependencies
+import pandas as pd
+
+# Local files
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def parse_args():
+    return parser.parse_args()
+
+def main():
+    folderpath = os.path.dirname(os.path.abspath(__file__))
+    filepath = os.path.join(folderpath, *['..', 'tl', 'param_distribution.csv'])
+    df = pd.read_csv(filepath)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'name',
+        help='name of the program',
+        choices=df.columns.tolist()[2:]
+    )
+    args = parser.parse_args()
+
+    df = df[df[args.name] != 0]
+
+    print(f' Transfer Learning Tremor Location: Parameters Used '.center(80, '='))
+    print('\n', f' Program: {args.name} '.center(80, '='))
+
+    for section in df.section.unique():
+        print(f' {section} '.center(80, '-'))
+        _df = df[df.section == section]
+        for i, row in _df.iterrows():
+            print('\t', row.parameter)
+    return
+
+
+if __name__ == '__main__':
+    main()

@@ -18,8 +18,14 @@ setup(
     install_requires = [
     ],
     scripts          = [
+        'bin/tl-clean',
+        'bin/tl-feature-extraction',
+        'bin/tl-get-wfs-eq',
+        'bin/tl-help',
+        'bin/tl-predict',
+        'bin/tl-scan',
         'bin/tl-synth',
-        'bin/tl-get_wfs_eq',
+        'bin/tl-train',
     ],
     zip_safe         = False
 )

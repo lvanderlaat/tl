@@ -1,0 +1,108 @@
+#!/usr/bin/env python
+
+
+"""
+Predict tremor locations
+"""
+
+
+# Python Standard Library
+import os
+import pickle
+import warnings
+
+# Other dependencies
+import numpy as np
+import pandas as pd
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def main():
+    args = tl.utils.parse_args()
+
+    c = tl.config.read(args.configfile)
+
+    # Create output folder
+    folderpath = tl.utils.create_folder(c.io.output_dir, 'LOCS', c.io.overwrite)
+
+    scaler_X_file = os.path.join(c.predict.model_dir, 'scaler_X.pkl')
+    scaler_y_file = os.path.join(c.predict.model_dir, 'scaler_y.pkl')
+    model_file = os.path.join(c.predict.model_dir, 'model.pkl')
+
+    # Model and scaler
+    with open(scaler_X_file, 'rb') as f:
+        scaler_X = pickle.load(f)
+    with open(scaler_y_file, 'rb') as f:
+        scaler_y = pickle.load(f)
+    with open(model_file, 'rb') as f:
+        model = pickle.load(f)
+
+    # Load data
+    df = pd.read_csv(c.predict.features_file, index_col='datetime', parse_dates=True)
+    df = df[[c for c in df.columns if '_' in c]]
+
+    # Load metadata
+    channels = pd.read_csv(c.features.channels_csv, comment='/')
+    meta = tl.features.to_dataframe(channels, c.features.bands)
+
+    n_features = len(meta)
+    feature_keys = []
+    for i in range(0, n_features-1):
+        for j in range(i+1, n_features):
+            feature_i = meta.iloc[i]
+            feature_j = meta.iloc[j]
+
+            # Do not compute ratios between the same station
+            # if feature_i.station == feature_j.station:
+            #     continue
+            # Do not compute ratios between different bands
+            if (feature_i.freqmin != feature_j.freqmin) or \
+               (feature_i.freqmax != feature_j.freqmax):
+                continue
+
+            ratio = f'{feature_i.key}_{feature_j.key}'
+
+            df[ratio] = df[feature_i.key] / df[feature_j.key]
+            df[ratio+'_sqrt'] = np.sqrt(df[ratio])
+            # df[ratio+'_log']  = np.log(df[ratio])
+
+            # feature_keys.append(ratio)
+            feature_keys.append(ratio+'_sqrt')
+            # feature_keys.append(ratio+'_log')
+
+    # Standarize data
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.dropna(inplace=True)
+    X = df[feature_keys].values
+    X = scaler_X.transform(X)
+
+    # Predict
+    y = model.predict(X)
+
+    y = scaler_y.inverse_transform(y)
+
+    df['x'] = y[:, 0]
+    df['y'] = y[:, 1]
+    df['z'] = y[:, 2]
+
+    df = df['x y z'.split()]
+    df.to_csv(os.path.join(folderpath, 'locs.csv'))
+
+    sta = channels.drop_duplicates(subset='station')
+
+    fig = tl.plot.locations(df, sta, s=1)
+    fig.savefig(os.path.join(folderpath, 'locs.pdf'), dpi=300)
+
+    tl.utils.write_conf(c, folderpath)
+    return
+
+
+if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
+    main()

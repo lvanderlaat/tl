@@ -9,6 +9,7 @@ This script extract the features from the waveforms of VT events for training.
 
 
 # Python Standard Library
+import argparse
 import datetime
 import gc
 import itertools
@@ -32,6 +33,15 @@ __email__  = 'laat@umich.edu'
 
 DATETIME_FMT  = '%Y%m%dT%H%M%SZ'
 SAMPLING_RATE = 100.
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('configfile', help='Configuration file path')
+    parser.add_argument('datatype', help='"eq" or "tremor"')
+    return parser.parse_args()
 
 
 def _extract_earthquake(
@@ -99,7 +109,7 @@ def _extract_tremor(
     st.merge(fill_value='interpolate')
     print(st[0].stats.starttime)
 
-    datetimes, X = features.extract_time_domain(
+    datetimes, X = tl.features.extract_time_domain(
         st, inventory, freqmin, freqmax, stachas, filter_polynomials,
         'rms', window_length=window_length, overlap=overlap
     )
@@ -117,7 +127,7 @@ def get_result(datetimes):
 
 def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
     # List of mseed files
-    filenames = os.listdir(c.features.tremor.wfs_dir)
+    filenames = os.listdir(c.tremor.wfs_dir)
 
     # Prepare a dataframe of mseed files available
     data = []
@@ -137,7 +147,7 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
     df['index_'] = df.starttime
     df.index = df.index_
     df.sort_index(inplace=True)
-    df = df[c.features.tremor.startdate: c.features.tremor.enddate]
+    df = df[c.tremor.startdate: c.tremor.enddate]
     df = df[df.station.isin([stacha[0] for stacha in stachas])]
 
     # Prepare lists of files to span the processes
@@ -147,15 +157,15 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
     # datetimes, X = [], []
     # for filenames in lists_of_files:
     #     _datetimes, _X = _extract_tremor(
-    #         c.features.tremor.wfs_dir,
+    #         c.tremor.wfs_dir,
     #         filenames,
     #         inventory,
     #         c.preprocess.freqmin,
     #         c.preprocess.freqmax,
     #         stachas,
     #         filter_polynomials,
-    #         c.features.tremor.window_length,
-    #         c.features.tremor.overlap,
+    #         c.tremor.window_length,
+    #         c.tremor.overlap,
     #     )
     #     datetimes.extend(_datetimes)
     #     X.append(_X)
@@ -164,15 +174,15 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
         results = pool.starmap(
             _extract_tremor,
             zip(
-                itertools.repeat(c.features.tremor.wfs_dir),
+                itertools.repeat(c.tremor.wfs_dir),
                 lists_of_files,
                 itertools.repeat(inventory),
                 itertools.repeat(c.preprocess.freqmin),
                 itertools.repeat(c.preprocess.freqmax),
                 itertools.repeat(stachas),
                 itertools.repeat(filter_polynomials),
-                itertools.repeat(c.features.tremor.window_length),
-                itertools.repeat(c.features.tremor.overlap),
+                itertools.repeat(c.tremor.window_length),
+                itertools.repeat(c.tremor.overlap),
             )
         )
 
@@ -199,15 +209,13 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
 
 def main():
     # Parse only argument: YAML file
-    args = tl.utils.parse_args()
+    args = parse_args()
 
     logger = tl.utils.get_logger()
 
     # Parse configuration YAML file
     c = tl.config.read(args.configfile)
 
-    # Create output folder
-    folderpath = tl.utils.create_folder(c.io.output_dir, 'FEAT_EQ', c.io.overwrite)
 
     # Logger
     logger = tl.utils.get_logger()
@@ -234,13 +242,23 @@ def main():
     inventory = obspy.read_inventory(c.preprocess.inventory)
 
     logger.info('Processing...')
-    if c.features.datatype == 'eq':
+    if args.datatype == 'eq':
         df = extract_earthquakes(c, inventory, stachas, filter_polynomials, meta.key)
+
         logger.info('Writing output...')
+
         fig = tl.plot.amp_dist_mag(df, c.features.bands, channels)
-        fig.savefig(os.path.join(folderpath, 'adm.pdf'), dpi=300)
-    elif c.features.datatype == 'tremor':
+
+        foldername = 'FEAT_EQ'
+    elif args.datatype == 'tremor':
         df = extract_tremor(c, inventory, stachas, filter_polynomials, meta.key)
+
+        fig = tl.plot.amp_timeseries(df)
+
+        foldername = 'FEAT_TR'
+
+    folderpath = tl.utils.create_folder(c.io.output_dir, foldername, c.io.overwrite)
+    fig.savefig(os.path.join(folderpath, 'amplitudes.pdf'), dpi=300)
 
     # Data csv
     df.to_csv(os.path.join(folderpath, 'data.csv'), index=False)
@@ -248,10 +266,6 @@ def main():
     # Output configuration used in this processing
     tl.utils.write_conf(c, folderpath)
 
-    if c.features.datatype == 'tremor':
-        plot.amp_timeseries(df).savefig(
-            os.path.join(folderpath, 'timeseries.png'), dpi=300
-        )
     logger.info('Done.')
     return
 

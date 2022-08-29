@@ -152,6 +152,32 @@ def locs_test_sample(
     return fig
 
 
+def locations(df, sta, s=1, figwidth=4.6, width=0.65, bottom=0.05):
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(4.6, 5.5), sharex=True)
+    fig.subplots_adjust(bottom=bottom, hspace=0)
+
+    ax1.set_ylabel('Cartesian northing [m]')
+    ax2.set_xlabel('Cartesian easting [m]')
+    ax2.set_ylabel('Depth [m]')
+
+    # Map
+    ax1.scatter(df.x, df.y, c='r', s=s)
+    ax2.scatter(df.x, df.z, c='r', s=s)
+
+    # Stations
+    ax1.scatter(sta.x, sta.y, s=25, c='k', marker='^')
+    ax2.scatter(sta.x, sta.z, s=25, c='k', marker='^')
+
+    # Layout
+    # adjust_map_section(fig, ax1, ax2, figwidth, width, bottom)
+
+    ax1.set_aspect('equal')
+    ax2.set_aspect('equal')
+    square_subplots(fig)
+    return fig
+
+
 def adjust_maps_sections(fig, ax1, ax2, ax3, ax4, figwidth, width, bottom):
     xmin, xmax = ax1.get_xlim()
     ymin, ymax = ax1.get_ylim()
@@ -315,7 +341,7 @@ def adjust_map_section(fig, ax1, ax2, figwidth, width, bottom):
         top=height_1+height_2+bottom,
         hspace=.0
     )
-    fig.tight_layout()
+    # fig.tight_layout()
     return
 
 
@@ -435,6 +461,56 @@ def amp_dist_mag(df, bands, channels, cha=['HHZ', 'EHZ'],  s=10, cols=2, rows=2)
 
     return fig
 
+
+def amp_timeseries(df):
+    fig = plt.figure(figsize=(6, 4))
+    fig.subplots_adjust(
+        left=.1,
+        bottom=.1,
+        right=.9,
+        top=.9,
+        wspace=.2,
+        hspace=.2
+    )
+
+    ax = fig.add_subplot(111)
+    ax.set_ylabel('Amplitude [$\mu m/s$]')
+    for column in df.columns:
+        if '_' in column:
+            ax.plot(df[column], lw=0.3, alpha=0.5, rasterized=True)
+    ax.set_yscale('log')
+    return fig
+
+
+def ratio_timeseries(df, meta):
+    df = df[meta.key]
+
+    fig = plt.figure(figsize=(6, 4))
+    fig.subplots_adjust(
+        left=.1,
+        bottom=.1,
+        right=.9,
+        top=.9,
+        wspace=.2,
+        hspace=.2
+    )
+    ax = fig.add_subplot(111)
+    ax.set_ylabel('Amplitude ratio')
+
+    n_features = len(meta)
+    for i in range(0, n_features-1):
+        for j in range(i+1, n_features):
+            feature_i = meta.iloc[i]
+            feature_j = meta.iloc[j]
+
+            # Do not compute ratios between the same station
+            if feature_i.station == feature_j.station:
+                continue
+            pair = f'{feature_i.key}_{feature_j.key}'
+            ratio = df[feature_i.key] / df[feature_j.key]
+            ax.scatter(df.index, ratio, lw=0, alpha=0.7, s=0.1, rasterized=True)
+    ax.set_yscale('log')
+    return fig
 
 if __name__ == '__main__':
     pass
