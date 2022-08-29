@@ -1,3 +1,9 @@
+
+example/FEAT_EQ/
+example/MODEL/
+example/WFS_EQ/
+example/WFS_EQ_IC/
+example/WFS_SCAN/
 .DS_Store
 add.sh
 example/SYNTH/
