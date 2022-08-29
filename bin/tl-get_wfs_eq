@@ -1,0 +1,100 @@
+#!/usr/bin/env python -u
+
+"""
+
+Downloads data for a catalog of volcano-tectonic events.
+
+1 file per event
+"""
+
+# Python Standard Library
+import os
+import warnings
+
+from concurrent.futures import ThreadPoolExecutor
+
+# Other dependencies
+import pandas as pd
+
+from obspy import UTCDateTime
+from obspy.clients.fdsn.client import Client
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__ = 'laat@umich.edu'
+
+
+def main():
+    def _download(filepath, starttime, endtime):
+        if os.path.isfile(filepath):
+            logger.debug('File already in disk')
+            return
+
+        try:
+            st = client.get_waveforms(
+                network   = network,
+                station = station,
+                location  = '*',
+                channel = channel,
+                starttime = UTCDateTime(starttime),
+                endtime   = UTCDateTime(endtime)
+            )
+            st.merge(fill_value='interpolate')
+            st.write(filepath, format='MSEED')
+            logger.debug(filepath)
+            return
+        except Exception as e:
+            logger.info(e)
+            return
+
+    args = tl.utils.parse_args()
+
+    c = tl.config.read(args.configfile)
+
+    logger = tl.utils.get_logger()
+
+    folderpath = tl.utils.create_folder(c.io.output_dir, 'WFS_EQ', c.io.overwrite)
+
+    # Read and filter the catalog
+    df = tl.catalog.read(c.dataset.catalog)
+    df = tl.catalog.filter(
+        df,
+        magnitude_min=c.dataset.magnitude_min,
+        magnitude_max=c.dataset.magnitude_max,
+        n_events=c.dataset.n_events
+    )
+
+    # List of tuples (station, channel)
+    df_inv = pd.read_csv(c.features.channels_csv, comment='/')
+    network = ','.join(list(df_inv.network.unique()))
+    station = ','.join(list(df_inv.station.unique()))
+    channel = ','.join(list(df_inv.channel.unique()))
+
+    # Connect to IRIS DMC to obtain waveforms
+    client = Client('IRIS')
+
+    df['filepath']  = df.eventid.apply(
+        lambda x: os.path.join(c.dataset.wfs_dir, f'{x}.mseed')
+    )
+    df['starttime'] = df.time - pd.Timedelta(c.dataset.pre, 'seconds')
+    df['endtime']   = df.time + pd.Timedelta(c.dataset.pos, 'seconds')
+
+    filepaths  = df.filepath.tolist()
+    starttimes = df.starttime.tolist()
+    endtimes   = df.endtime.tolist()
+
+    # Parallel, threading
+    logger.info('Downloading...')
+    with ThreadPoolExecutor(max_workers=c.performance.max_workers) as executor:
+        executor.map(_download, filepaths, starttimes, endtimes)
+
+    logger.info('Done')
+    return
+
+
+if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
+    main()

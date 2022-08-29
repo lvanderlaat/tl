@@ -64,7 +64,7 @@ def create_folder(output_dir, name, overwrite):
     folderpath = os.path.join(output_dir, name)
 
     if not overwrite:
-        folderpath + '_' + datetime_id(datetime.datetime.now())
+        folderpath = folderpath + '_' + datetime_id(datetime.datetime.now())
 
     if not os.path.exists(folderpath):
         os.makedirs(folderpath)
@@ -90,9 +90,6 @@ def get_logger():
 def write_conf(c, folderpath):
     with open(os.path.join(folderpath, 'config.json'), 'w') as f:
         json.dump(c, f, indent=4)
-
-def write_model(model, folderpath):
-    pickle.dump(model, open(os.path.join(folderpath, 'model.pkl'), 'wb'))
 
 
 if __name__ == '__main__':

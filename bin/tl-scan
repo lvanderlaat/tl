@@ -1,0 +1,108 @@
+#!/usr/bin/env python -u
+
+""" Scan
+
+This script scans the data downloaded to count the number of events and
+stations/channel per event. The output can be used to clean the data
+afterwards.
+
+"""
+# Python Standard Library
+import argparse
+import json
+import os
+
+
+# Other dependencies
+import matplotlib.pyplot as plt
+import pandas as pd
+
+from obspy import read
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__ = 'laat@umich.edu'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('-i', '--wfs_dir', help='Waveforms directory')
+    parser.add_argument('-o', '--output_dir', help='Output directory')
+    return parser.parse_args()
+
+
+def main():
+    # Logger
+    logger = tl.utils.get_logger()
+
+    folderpath = tl.utils.create_folder(args.output_dir, 'WFS_SCAN', True)
+
+    data = []
+    for filename in os.listdir(args.wfs_dir):
+        logger.debug(filename)
+        if filename == '.DS_Store':
+            continue
+
+        eventid = filename.split('.')[0]
+
+        filepath = os.path.join(args.wfs_dir, filename)
+
+        try:
+            st = read(filepath, headonly=True)
+        except:
+            os.remove(filepath)
+            logger.debug(f'Removed {filepath}')
+            continue
+
+        for tr in st:
+            data.append(
+                dict(
+                    eventid=eventid,
+                    station=tr.stats.station,
+                    channel=tr.stats.channel
+                )
+            )
+    df = pd.DataFrame(data)
+
+    # Count channels per event
+    c = df.groupby('eventid').channel.count()
+    c.to_csv(os.path.join(folderpath, 'count_channels_per_event.csv'))
+
+    n_inc = len(c[c < c.max()])
+
+    factor = 2.54
+    fig = plt.figure(figsize=(8/factor, 8/factor))
+    fig.subplots_adjust(left=.18, bottom=.14, right=.85, top=.9)
+    ax = fig.add_subplot(111)
+    ax.set_xlabel('Event index')
+    ax.set_ylabel('Number of channels')
+    ax.plot(range(len(c)), c.sort_values())
+    ax.axvline(n_inc, ls='--', c='r')
+    ax.set_title(f'N(incomplete) = {n_inc}, N(complete) = {len(c) - n_inc}')
+    fig.savefig(
+        os.path.join(folderpath, 'count_channels_per_event.pdf'),
+        format='pdf'
+    )
+
+    # Count events per station-channel
+    _df = df.groupby(['station', 'channel']).count()
+    _df.rename(columns={'eventid': 'n_events'}, inplace=True)
+    _df.to_csv(os.path.join(folderpath, 'count_events_per_channel.csv'))
+
+    # Write inventory
+    data = {}
+    for station in df.station.unique():
+        data[station] = df[df.station == station].channel.unique().tolist()
+    with open(os.path.join(folderpath, 'inventory.json'), 'w') as f:
+        json.dump(data, f, indent=4)
+    return
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    main()

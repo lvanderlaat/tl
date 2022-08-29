@@ -19,6 +19,7 @@ setup(
     ],
     scripts          = [
         'bin/tl-synth',
+        'bin/tl-get_wfs_eq',
     ],
     zip_safe         = False
 )

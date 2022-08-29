@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+
+# Python Standard Library
+import argparse
+import os
+
+# Other dependencies
+import pandas as pd
+import tl
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('-i', '--wfs_dir', help='Waveforms directory')
+    parser.add_argument('-o', '--out_dir', help='Output directory for rejected waveforms')
+    parser.add_argument('-f', '--filepath', help='csv file scan output "count_channels_per_event.csv"')
+    parser.add_argument('-n', '--n_channels', help='Number of channels', type=int)
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+
+    folderpath = os.path.join(args.out_dir, 'WFS_EQ_IC')
+    if not os.path.exists(folderpath):
+        os.makedirs(folderpath)
+
+    logger = tl.utils.get_logger()
+
+    df = pd.read_csv(args.filepath)
+
+    n = len(df)
+
+    df = df[df.channel < args.n_channels]
+
+    n_ic = len(df)
+
+    for i, row in df.iterrows():
+        logger.debug(row.eventid)
+        filepath = os.path.join(args.wfs_dir, f'{row.eventid}.mseed')
+        if os.path.exists(filepath):
+            os.rename(
+                filepath,
+                os.path.join(folderpath, f'{row.eventid}.mseed')
+            )
+
+    logger.info(f'{n_ic} incomplete files were moved out of the folder.')
+    logger.info(f'{n-n_ic} files remain in the folder.')
+    return
+
+
+if __name__ == '__main__':
+    main()

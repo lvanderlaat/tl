@@ -6,6 +6,7 @@
 
 
 # Python Standard Library
+import warnings
 
 # Other dependencies
 import matplotlib.pyplot as plt
@@ -16,10 +17,14 @@ from matplotlib import colors
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Local files
+from . import features
 
 
 __author__ = 'Leonardo van der Laat'
 __email__  = 'laat@umich.edu'
+
+
+warnings.filterwarnings('ignore')
 
 
 def misfits_histograms(df_true, df_pred, bins=50):
@@ -111,22 +116,24 @@ def locs_test_sample(
     vmax = np.quantile(df_true.misfit, 0.95)
 
     # Map
-    ax1.scatter(df1.x, df1.y, c='k', marker='x', label='True')
+    ax1.scatter(df1.x, df1.y, c='k', marker='x', label='True', cmap='inferno')
     scatter = ax1.scatter(
         df2.x, df2.y, s=s,
         c=df2.misfit, vmin=vmin, vmax=vmax, norm=colors.LogNorm(),
-        label='Predicted'
+        label='Predicted', cmap='inferno'
     )
     ax1.legend()
+
     # Profile
-    ax2.scatter(df1.x, df1.z, c='k', marker='x')
+    ax2.scatter(df1.x, df1.z, c='k', marker='x', cmap='inferno')
     ax2.scatter(
         df2.x, df2.z, s=s,
         c=df2.misfit, vmin=vmin, vmax=vmax, norm=colors.LogNorm(),
+        cmap='inferno',
     )
 
     # Colorbar
-    cbar_ax = fig.add_axes([0.91, 0.33, 0.01, 0.3])
+    cbar_ax = fig.add_axes([0.86, 0.33, 0.01, 0.3])
     fig.colorbar(scatter, cax=cbar_ax, label='Misfit [m]')
 
     for i, row in df1.iterrows():
@@ -138,7 +145,10 @@ def locs_test_sample(
     ax2.scatter(sta.x, sta.z, s=25, c='k', marker='^')
 
     # Layout
-    adjust_map_section(fig, ax1, ax2, figwidth, width, bottom)
+    # adjust_map_section(fig, ax1, ax2, figwidth, width, bottom)
+    ax1.set_aspect('equal')
+    ax2.set_aspect('equal')
+    square_subplots(fig)
     return fig
 
 
@@ -189,10 +199,10 @@ def adjust_maps_sections(fig, ax1, ax2, ax3, ax4, figwidth, width, bottom):
         hspace=.0,
         wspace=0.05
     )
-    ax1.get_shared_x_axes().join(ax1, ax2, ax3, ax4)
-    ax1.get_shared_y_axes().join(ax1, ax2)
-    ax3.get_shared_y_axes().join(ax3, ax4)
-    # fig.tight_layout()
+    # ax1.get_shared_x_axes().join(ax1, ax2, ax3, ax4)
+    # ax1.get_shared_y_axes().join(ax1, ax2)
+    # ax3.get_shared_y_axes().join(ax3, ax4)
+    fig.tight_layout()
 
     return
 
@@ -370,6 +380,61 @@ def synth_misfit(
     adjust_map_section(fig, ax1, ax2, figwidth, width, bottom)
 
     return fig
+
+
+def amp_dist_mag(df, bands, channels, cha=['HHZ', 'EHZ'],  s=10, cols=2, rows=2):
+    fc = 0.9
+    fig = plt.figure(figsize=(7.4, 6))
+
+    position = range(1, len(bands)+1, 1)
+
+    for i, band in enumerate(bands):
+        meta = features.to_dataframe(channels[channels.channel.isin(cha)], [band])
+
+        columns = 'x y z magnitude'.split() + list(meta.key)
+
+        df_band = df[columns]
+        distance_keys = []
+        for _, row in meta.iterrows():
+            key = row.station + '_dist'
+            distance_keys.append(key)
+            df_band[key] = np.sqrt(
+                (df_band.x - row.x)**2 + (df_band.y - row.y)**2 + (df_band.z - row.z)**2
+            )
+
+        _dfs = []
+        for key, distance_key in zip(meta.key, distance_keys):
+            _df = df_band[[key, distance_key, 'magnitude']]
+            _df.columns = ['amplitude', 'distance', 'magnitude']
+            _dfs.append(_df)
+
+        df_ = pd.concat(_dfs, ignore_index=True)
+        df_.distance *= 1e-3
+        df_.sort_values(by='amplitude', ascending=False, inplace=True)
+
+        vmin = df_.amplitude.quantile(.005)
+        vmax = df_.amplitude.quantile(.995)
+
+        ax = fig.add_subplot(rows, cols, position[i])
+        ax.set_xlabel('Magnitude')
+        ax.set_ylabel('Distance [km]')
+        if len(bands) > 1:
+            ax.set_title(f'{band[0]} - {band[1]} Hz')
+
+        scatter = ax.scatter(
+            df_.magnitude, df_.distance, c=df_.amplitude,
+            s=s, norm=colors.LogNorm(vmin=vmin, vmax=vmax), cmap='turbo',
+            rasterized=True, zorder=-10
+        )
+        # Colorbar
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        plt.colorbar(scatter, cax=cax, label='Amplitude [$\mu m/s$]')
+        ax.set_facecolor((fc, fc, fc))
+    fig.tight_layout()
+
+    return fig
+
 
 if __name__ == '__main__':
     pass

@@ -10,6 +10,8 @@ misfit distribution.
 # Python Standard Library
 import datetime
 import os
+import pickle
+import warnings
 
 # Other dependencies
 import numpy as np
@@ -123,7 +125,7 @@ def main():
 
     # Save the model and configuration
     tl.utils.write_conf(c, folderpath)
-    tl.utils.write_model(model, folderpath)
+    pickle.dump(model, open(os.path.join(folderpath, f'model.pkl'), 'wb'))
 
     # Predict grid
     xmin, ymin = tl.projection.geographic_to_cartesian(
@@ -169,4 +171,5 @@ def main():
 
 
 if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
     main()

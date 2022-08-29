@@ -1,0 +1,260 @@
+#!/usr/bin/env python
+
+
+""" Feature extraction
+
+This script extract the features from the waveforms of VT events for training.
+
+"""
+
+
+# Python Standard Library
+import datetime
+import gc
+import itertools
+import json
+import os
+
+# Other dependencies
+import numpy as np
+import obspy
+import pandas as pd
+import ray.util.multiprocessing as multiprocessing
+import scipy.signal
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+DATETIME_FMT  = '%Y%m%dT%H%M%SZ'
+SAMPLING_RATE = 100.
+
+
+def _extract_earthquake(
+    wfs_dir, eventid, inventory, freqmin, freqmax, stachas,
+    filter_polynomials
+):
+    # read waveforms
+    st = obspy.read(os.path.join(wfs_dir, f'{eventid}.mseed'))
+
+    _, X = tl.features.extract_time_domain(
+        st, inventory, freqmin, freqmax, stachas, filter_polynomials,
+        'rms'
+    )
+    if X is None:
+        X = np.empty((1, len(stachas)*len(filter_polynomials)))
+        X[:] = np.nan
+    return X[0]
+
+
+def extract_earthquakes(c, inventory, stachas, filter_polynomials, columns):
+    # Read catalog
+    df = tl.catalog.read(c.dataset.catalog)
+
+    # Filter catalog
+    df = tl.catalog.filter(
+        df,
+        magnitude_min=c.dataset.magnitude_min,
+        magnitude_max=c.dataset.magnitude_max,
+        n_events=c.dataset.n_events
+    )
+
+    # Remove events that have no waveforms in directory
+    ids = [int(f.split('.')[0]) for f in os.listdir(c.dataset.wfs_dir)]
+    df = df[df.eventid.isin(ids)]
+
+    with multiprocessing.Pool(c.performance.max_workers) as pool:
+        X = pool.starmap(
+            _extract_earthquake,
+            zip(
+                itertools.repeat(c.dataset.wfs_dir),
+                df.eventid,
+                itertools.repeat(inventory),
+                itertools.repeat(c.preprocess.freqmin),
+                itertools.repeat(c.preprocess.freqmax),
+                itertools.repeat(stachas),
+                itertools.repeat(filter_polynomials)
+            )
+        )
+
+    X = np.array(X)
+    _df = pd.DataFrame(X, columns=columns, index=df.index)
+    df = pd.concat([df, _df], axis=1)
+    df.dropna(inplace=True)
+    return df
+
+
+def _extract_tremor(
+    wfs_dir, filenames, inventory, freqmin, freqmax, stachas,
+    filter_polynomials, window_length, overlap
+):
+    print('Loading files...')
+    st = obspy.Stream()
+    for filename in filenames:
+        st += obspy.read(os.path.join(wfs_dir, filename))
+    st.merge(fill_value='interpolate')
+    print(st[0].stats.starttime)
+
+    datetimes, X = features.extract_time_domain(
+        st, inventory, freqmin, freqmax, stachas, filter_polynomials,
+        'rms', window_length=window_length, overlap=overlap
+    )
+
+    del st; gc.collect()
+
+    print('Done')
+    return datetimes, X
+
+
+def get_result(datetimes):
+    global results
+    results.append(datetimes)
+
+
+def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
+    # List of mseed files
+    filenames = os.listdir(c.features.tremor.wfs_dir)
+
+    # Prepare a dataframe of mseed files available
+    data = []
+    for filename in filenames:
+        network, station, location, cha_date, extension = filename.split('.')
+        channel, starttime, endtime = cha_date.split('__')
+        datum = dict(
+            network=network,
+            station=station,
+            channel=channel,
+            starttime=datetime.datetime.strptime(starttime, DATETIME_FMT),
+            endtime=datetime.datetime.strptime(endtime, DATETIME_FMT),
+            filename=filename
+        )
+        data.append(datum)
+    df = pd.DataFrame(data)
+    df['index_'] = df.starttime
+    df.index = df.index_
+    df.sort_index(inplace=True)
+    df = df[c.features.tremor.startdate: c.features.tremor.enddate]
+    df = df[df.station.isin([stacha[0] for stacha in stachas])]
+
+    # Prepare lists of files to span the processes
+    lists_of_files = [list(_df.filename) for i, _df in df.groupby('starttime')]
+
+
+    # datetimes, X = [], []
+    # for filenames in lists_of_files:
+    #     _datetimes, _X = _extract_tremor(
+    #         c.features.tremor.wfs_dir,
+    #         filenames,
+    #         inventory,
+    #         c.preprocess.freqmin,
+    #         c.preprocess.freqmax,
+    #         stachas,
+    #         filter_polynomials,
+    #         c.features.tremor.window_length,
+    #         c.features.tremor.overlap,
+    #     )
+    #     datetimes.extend(_datetimes)
+    #     X.append(_X)
+
+    with multiprocessing.Pool(c.performance.max_workers) as pool:
+        results = pool.starmap(
+            _extract_tremor,
+            zip(
+                itertools.repeat(c.features.tremor.wfs_dir),
+                lists_of_files,
+                itertools.repeat(inventory),
+                itertools.repeat(c.preprocess.freqmin),
+                itertools.repeat(c.preprocess.freqmax),
+                itertools.repeat(stachas),
+                itertools.repeat(filter_polynomials),
+                itertools.repeat(c.features.tremor.window_length),
+                itertools.repeat(c.features.tremor.overlap),
+            )
+        )
+
+    # Unzip results
+    _datetimes, _X = list(map(list, zip(*results)))
+
+    # Get rid of None results
+    datetimes, X = [], []
+    for _d, _x in zip(_datetimes, _X):
+        if _d is not None and _x is not None:
+            datetimes.append(_d)
+            X.append(_x)
+
+    # Flatten the lists
+    datetimes = [item for sublist in datetimes for item in sublist]
+
+    # Concatenate the data arrays
+    X = np.concatenate(X)
+    df = pd.DataFrame(X, columns=columns, index=datetimes)
+    df['datetime'] = df.index
+    df.sort_index(inplace=True)
+    return df
+
+
+def main():
+    # Parse only argument: YAML file
+    args = tl.utils.parse_args()
+
+    logger = tl.utils.get_logger()
+
+    # Parse configuration YAML file
+    c = tl.config.read(args.configfile)
+
+    # Create output folder
+    folderpath = tl.utils.create_folder(c.io.output_dir, 'FEAT_EQ', c.io.overwrite)
+
+    # Logger
+    logger = tl.utils.get_logger()
+
+    # List of tuples (station, channel)
+    channels = pd.read_csv(c.features.channels_csv, comment='/')
+    stachas = [
+        (channel.station, channel.channel) for i, channel in channels.iterrows()
+    ]
+
+    # features metadata
+    meta = tl.features.to_dataframe(channels, c.features.bands)
+
+    # Determine the filter polynomials
+    filter_polynomials = []
+    for band in c.features.bands:
+        nyquist = 0.5 * SAMPLING_RATE/c.preprocess.decimation_factor
+        low  = band[0] / nyquist
+        high = band[1] / nyquist
+        b, a = scipy.signal.butter(c.features.order, [low, high], btype='band')
+        filter_polynomials.append((b, a))
+
+    # Read the inventory, stations response information
+    inventory = obspy.read_inventory(c.preprocess.inventory)
+
+    logger.info('Processing...')
+    if c.features.datatype == 'eq':
+        df = extract_earthquakes(c, inventory, stachas, filter_polynomials, meta.key)
+        logger.info('Writing output...')
+        fig = tl.plot.amp_dist_mag(df, c.features.bands, channels)
+        fig.savefig(os.path.join(folderpath, 'adm.pdf'), dpi=300)
+    elif c.features.datatype == 'tremor':
+        df = extract_tremor(c, inventory, stachas, filter_polynomials, meta.key)
+
+    # Data csv
+    df.to_csv(os.path.join(folderpath, 'data.csv'), index=False)
+
+    # Output configuration used in this processing
+    tl.utils.write_conf(c, folderpath)
+
+    if c.features.datatype == 'tremor':
+        plot.amp_timeseries(df).savefig(
+            os.path.join(folderpath, 'timeseries.png'), dpi=300
+        )
+    logger.info('Done.')
+    return
+
+
+if __name__ == '__main__':
+    main()

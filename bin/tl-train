@@ -1,0 +1,212 @@
+#!/usr/bin/env python
+
+
+"""
+Train a linear regression mode for earthquake/tremor location
+"""
+
+
+# Python Standard Library
+import datetime
+import os
+import pickle
+import warnings
+
+# Other dependencies
+import numpy as np
+import pandas as pd
+
+from sklearn.linear_model import RidgeCV, Ridge
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def main():
+    # Parse configuration file
+    args = tl.utils.parse_args()
+
+    # Get configuration
+    c = tl.config.read(args.configfile)
+
+    # Create output folder
+    folderpath = tl.utils.create_folder(c.io.output_dir, 'MODEL', c.io.overwrite)
+    # Logger
+    logger = tl.utils.get_logger()
+
+    # Load metadata
+    channels = pd.read_csv(c.features.channels_csv, comment='/')
+    # features metadata
+    meta = tl.features.to_dataframe(channels, c.features.bands)
+
+    # Load data
+    logger.info('Loading data...')
+    df = pd.read_csv(c.train.data_file)
+
+    # Filter data
+    df = tl.catalog.filter(
+        df,
+        magnitude_min=c.dataset.magnitude_min,
+        magnitude_max=c.dataset.magnitude_max,
+        n_events=c.dataset.n_events
+    )
+
+    # Feature engeneering
+    logger.info('Feature engeneering...')
+    n_features = len(meta)
+    feature_keys = []
+    for i in range(0, n_features-1):
+        for j in range(i+1, n_features):
+            feature_i = meta.iloc[i]
+            feature_j = meta.iloc[j]
+
+            # Do not compute ratios between the same station
+            # if feature_i.station == feature_j.station:
+            #     continue
+
+            # Do not compute ratios between different bands
+            if (feature_i.freqmin != feature_j.freqmin) or \
+               (feature_i.freqmax != feature_j.freqmax):
+                continue
+
+            ratio = f'{feature_i.key}_{feature_j.key}'
+
+            df[ratio] = df[feature_i.key] / df[feature_j.key]
+            df[ratio+'_sqrt'] = np.sqrt(df[ratio])
+            # df[ratio+'_log']  = np.log(df[ratio])
+
+            # feature_keys.append(ratio)
+            feature_keys.append(ratio+'_sqrt')
+            # feature_keys.append(ratio+'_log')
+    logger.info(f'{len(feature_keys)} features computed.')
+
+    # To NumPy arrays for SciKit-Learn
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.dropna(inplace=True)
+
+    X = df[feature_keys].values
+    y = df[['x', 'y', 'z']].values
+
+    # Normalize location (Kriegerowski et al., 2019)
+    scaler_y = StandardScaler()
+    y = scaler_y.fit_transform(y)
+
+    # Test-train
+    logger.info(f'Training with {(1-c.train.test_size)*100}% of the dataset')
+
+    eventids = df.eventid.values
+
+    # Split training and testing data sets
+    X_train, X_test, y_train, y_test, evid_train, evid_test = train_test_split(
+        X, y, eventids, test_size=c.train.test_size,
+        random_state=c.train.random_state
+    )
+
+    logger.info(
+        f'n={X.shape[0]}, n(train)={X_train.shape[0]}, n(test)={X_test.shape[0]}'
+    )
+
+    # Model
+    model = RidgeCV(alphas=[1e1, 1e2, 1e3, 1e4])
+
+    # Normalize
+    scaler_X = StandardScaler()
+    scaler_X.fit(X_train)
+    X_train = scaler_X.transform(X_train)
+    X_test  = scaler_X.transform(X_test)
+
+    # Fit the model
+    logger.info('Training...')
+    model.fit(X_train, y_train)
+    alpha = model.alpha_
+    logger.info(f'Best alpha: {model.alpha_}')
+
+    # Predict test set
+    logger.info('Predicting test set...')
+    y_pred = model.predict(X_test)
+
+    # Re-scale
+    y_pred = scaler_y.inverse_transform(y_pred)
+    y_test = scaler_y.inverse_transform(y_test)
+
+    # Error
+    misfits, interval, stdev = tl.train.get_scores(y_test, y_pred)
+    logger.info(f'Test error: {int(misfits.mean())} m')
+    logger.info(f'Standard deviation (xyz): {stdev.astype(int)} m')
+    logger.info(f'Prediction interval (xyz): {interval.astype(int)} m')
+
+    # Test Output Data
+    df_true, df_pred = tl.train.results_to_df(y_test, y_pred, misfits, evid_test)
+
+    # Plots
+    fig = tl.plot.misfits_histograms(df_true, df_pred)
+    fig.savefig(os.path.join(folderpath, 'test_misfits_histograms.pdf'))
+
+    sta = meta.drop_duplicates(subset='station')
+    fig = tl.plot.locs_test_sample(df_true, df_pred, sta)
+    fig.savefig(os.path.join(folderpath, 'test_locs_sample.pdf'), dpi=300)
+
+    fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=10)
+    fig.savefig(os.path.join(folderpath, 'test_locs_all.pdf'), dpi=300)
+
+    # Total data set
+    logger.info('Training with the whole data set...')
+    # Model
+    model = Ridge(alpha=alpha)
+
+    # Normalize
+    scaler_X = StandardScaler()
+    scaler_X.fit(X)
+    X = scaler_X.transform(X)
+
+    # Fit the model
+    logger.info('Training...')
+    model.fit(X, y)
+
+    # Predict test set
+    logger.info('Predicting...')
+    y_pred = model.predict(X)
+
+    # Re-scale
+    y = scaler_y.inverse_transform(y)
+    y_pred = scaler_y.inverse_transform(y_pred)
+
+    # Error
+    misfits, interval, stdev = tl.train.get_scores(y, y_pred)
+    logger.info(f'Test error: {int(misfits.mean())} m')
+    logger.info(f'Standard deviation (xyz): {stdev.astype(int)} m')
+    logger.info(f'Prediction interval (xyz): {interval.astype(int)} m')
+
+    # Test Output Data
+    df_true, df_pred = tl.train.results_to_df(y, y_pred, misfits, eventids)
+
+    # Plots
+    fig = tl.plot.misfits_histograms(df_true, df_pred)
+    fig.savefig(os.path.join(folderpath, 'tot_misfits_histograms.pdf'))
+
+    fig = tl.plot.locs_test_sample(df_true, df_pred, sta)
+    fig.savefig(os.path.join(folderpath, 'tot_locs_sample.pdf'), dpi=300)
+
+    fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=10)
+    fig.savefig(os.path.join(folderpath, 'tot_locs_all.pdf'), dpi=300)
+
+    # Save the scaler and the model
+    for name, obj in zip(
+        'scaler_X scaler_y model'.split(), [scaler_X, scaler_y, model]
+    ):
+        pickle.dump(obj, open(os.path.join(folderpath, f'{name}.pkl'), 'wb'))
+
+    tl.utils.write_conf(c, folderpath)
+    logger.info('Done')
+    return
+
+
+if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
+    main()

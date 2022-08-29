@@ -5,6 +5,9 @@ projection:
     epsg: 26961
 preprocess:
     inventory: inventory.xml
+    decimation_factor: 2
+    freqmin: 0.01
+    freqmax: 24
 features:
     channels_csv: channels.csv
     bands: [[0.03, 1], [1, 2], [2, 3], [0.03, 3]]
@@ -16,7 +19,7 @@ dataset:
     magnitude_max: 5
     n_events: 100
     pre: 0
-    pos: 0
+    pos: 20
     wfs_dir: WFS_EQ
 synth:
     Q: 50
@@ -34,6 +37,6 @@ synth:
 train:
     test_size: 0.3
     random_state: 0
-    data_file: FEATURES_EQ/data.csv
+    data_file: FEAT_EQ/data.csv
 performance:
-    max_workers: 4
+    max_workers: 8
