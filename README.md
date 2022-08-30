@@ -4,9 +4,13 @@ This repository contains the code used in van der Laat *et al.* (2023, in prep.)
 
 # Installation
 
-Download a zip file of the code or clone it:
+Download a zip file of the code or clone it (HTTP):
 
     $ git clone https://github.com/lvanderlaat/tl.git
+
+or (SSH):
+
+    $ git clone git@github.com:lvanderlaat/tl.git
     
 Go in the repository directory
 
