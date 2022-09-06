@@ -1,6 +1,6 @@
 # Transfer Learning Tremor Location
 
-This repository contains the code used in van der Laat *et al.* (2023, in prep.) to locate the tremor from the Kilauea caldera collapse in 2018.
+This repository contains the code used in [van der Laat *et al.* (2023, in prep.)]() to locate the tremor from the Kilauea caldera collapse in 2018.
 
 # Installation
 
@@ -16,13 +16,21 @@ Go in the repository directory
 
     $ cd tl
 
-Create `conda` environment named `tl` and install the package and its dependencies:
+and create a `conda` environment named `tl` and install the package and its dependencies:
     
-    $ bash install.sh
+    $  conda env create -f environment.yml
+
+Activate the environment
+
+    $ conda activate tl
+
+and install this package:
+
+    (tl) $ pip install -e .
 
 # Run the example
 
-    $ conda activate tl
-    $ cd example
-    $ jupyter-lab example.ipynb
+This repository contains a minimal working example that you can run to learn how to use this program:
 
+    (tl) $ cd example
+    (tl) $ jupyter-lab example.ipynb
