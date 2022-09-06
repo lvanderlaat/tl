@@ -1,18 +1,25 @@
 io:                                                 # ============================== I/O ==============================
     output_dir: .                                   # str, Output directory (all programs write a folder in this path)
     overwrite: True                                 # bool, Wheter to overwrite the previous output folder
+performance:                                        # ============================ PERFORMANCE ==========================
+    max_workers: 8                                  # int, number of threads/processes
 projection:                                         # =================== COORDINATES TRANSFORMATION ==================
     epsg: 26961                                     # int or str, EPSG code
-preprocess:                                         # ========================== PRE-PROCESSING =======================
+preprocess:                                         # ============================ PRE-PROCESSING ========================
     inventory: inventory.xml                        # str, path to STATIONXML file
     decimation_factor: 2                            # int, decimation factor
     freqmin: 0.01                                   # float, minimum frequency for bandpass filter [Hz]
     freqmax: 24                                     # float, maximum frequency for bandpass filter [Hz]
-features:                                           # ======================= FEATURE EXTRACTION ======================
+amplitude:                                          # ======================== FEATURE EXTRACTION ========================
     channels_csv: channels.csv                      # str, path to channels csv file
-    bands: [[0.03, 1], [1, 2], [2, 3], [0.03, 3]]   # list of lists, [[min(f1), max(f1)], [min(f2), max(f2)]] [Hz]
+    bands: [[0.5, 1], [0.03, 3]]                    # list of lists, [[min(f1), max(f1)], [min(f2), max(f2)]] [Hz]
     order: 1                                        # int, order of the butterworth bandpass filter
-dataset:                                            # ======================== TRAINING DATASET ========================
+engineer:                                           # ======================= FEATURE ENGINEERING ========================
+    amp_folder: AMP                                 # str, directory path to folder containing amplitude data and metadata
+    ratio_same_station: True                        # bool, whether to consider amplitude ratios of a same station
+    ratio_diff_bands: True                          # boo, whether to consider ratios between different frequency bands 
+    transformations: [R, sqrt, log, W]              # list of transformations to use: [R, sqrt, log, W]
+dataset:                                            # ========================= TRAINING DATASET =========================
     catalog: catalog.csv                            # str, path to catalog csv file
     magnitude_min: 2                                # float, minimum magnitude
     magnitude_max: 5                                # float, maximum magnitude
@@ -20,7 +27,7 @@ dataset:                                            # ======================== T
     pre: 0                                          # float, seconds before the origin time
     pos: 20                                         # float, seconds after the origin time
     wfs_dir: WFS_EQ                                 # str, path to the folder containig the earthquake files
-synth:                                              # ========================SYNTHETIC TESTS =========================
+synth:                                              # ======================== SYNTHETIC TESTS ==========================
     Q: 50                                           # float, attenuation factor
     f: 2                                            # float, central frequency
     beta: 2309                                      # float, velocity
@@ -33,18 +40,16 @@ synth:                                              # ========================SY
     zmax: 2300                                      # float, maximum elevation for grid [m]
     step: 100                                       # float, distance between points in the grid [m]
     z_plot: -1000                                   # float, elevation at which the grid will be created [m]
-train:                                              # ============================ TRAINING ============================
+train:                                              # ============================ TRAINING =============================
     test_size: 0.3                                  # float, fraction to use for testing
     random_state: 0                                 # int, seed for splitting randomly the dataset
-    data_file: FEAT_EQ/data.csv                     # str, path to data file with features
-performance:                                        # ============================ PERFORMANCE =========================
-    max_workers: 8                                  # int, number of threads/processes
-tremor:                                             # ========================= TREMOR PROCESSING ======================
+    feat_folder: FEAT                               # str, path to data folder with features data and metadata
+tremor:                                             # ========================= TREMOR PROCESSING =======================
     wfs_dir: WFS_TR                                 # str, Directory path to the folder with continuous records
     window_length: 900                              # float, [s]
     overlap: 0.0                                    # float, 0-1 fraction
     startdate: 2018-05-12                           # str, %y-%m-%d
     enddate: 2018-05-12                             # str, %y-%m-%d
-predict:                                            # =========================== PREDICTIONS ==========================
-    model_dir: MODEL                                # str, Path to the folder with the model
-    features_file: FEAT_TR/data.csv                 # str, Path to the file with the tremor features
+predict:                                            # =========================== PREDICTIONS ===========================
+    model_dir: MODEL_EQ                             # str, Path to the folder with the model
+    feat_folder: FEAT                               # str, Path to the file with the tremor features

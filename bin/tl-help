@@ -19,9 +19,6 @@ __author__ = 'Leonardo van der Laat'
 __email__  = 'laat@umich.edu'
 
 
-def parse_args():
-    return parser.parse_args()
-
 def main():
     folderpath = os.path.dirname(os.path.abspath(__file__))
     filepath = os.path.join(folderpath, *['..', 'tl', 'param_distribution.csv'])
@@ -37,14 +34,17 @@ def main():
 
     df = df[df[args.name] != 0]
 
+    print('\n')
     print(f' Transfer Learning Tremor Location: Parameters Used '.center(80, '='))
     print('\n', f' Program: {args.name} '.center(80, '='))
+    print('\n')
 
     for section in df.section.unique():
         print(f' {section} '.center(80, '-'))
         _df = df[df.section == section]
         for i, row in _df.iterrows():
             print('\t', row.parameter)
+    print('\n')
     return
 
 

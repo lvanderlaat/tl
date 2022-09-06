@@ -9,16 +9,20 @@ Generates synthetic data based on the amplitude decay model
 # Python Standard Library
 
 # Other dependencies
+import pandas as pd
 import numpy as np
 
 # Local files
+from .projection import geographic_to_cartesian
+from .features import engineer
+from .plot import synth_misfit
 
 
 __author__ = 'Leonardo van der Laat'
 __email__  = 'laat@umich.edu'
 
 
-def get_data(df, meta, f, Q, beta, alpha, source_amplitude=False):
+def amplitudes(df, meta, f, Q, beta, alpha, source_amplitude=True):
     Ao = 1
     if source_amplitude:
         Ao = np.exp(df.magnitude)
@@ -27,42 +31,67 @@ def get_data(df, meta, f, Q, beta, alpha, source_amplitude=False):
 
     # Synthetic amplitudes
     for i, row in meta.iterrows():
-        station = row.station
         distance = np.sqrt(
             (df.x - row.x)**2 + (df.y - row.y)**2 + (df.z - row.z)**2
         )
-        df[station] = Ao*np.exp(-B*distance)/distance**alpha
-
-    # Ratios
-    n_features = len(meta)
-    feature_keys = []
-    for i in range(0, n_features-1):
-        for j in range(i+1, n_features):
-            feature_i = meta.iloc[i]
-            feature_j = meta.iloc[j]
-            pair = f'{feature_i.station}_{feature_j.station}'
-            df[pair] = df[feature_i.station] / df[feature_j.station]
-            df[pair+'_sqrt'] = np.sqrt(df[pair])
-            df[pair+'_log']  = np.log(df[pair])
-            feature_keys.extend([pair, pair+'_sqrt', pair+'_log'])
-
-    # To NumPy arrays for SciKit-Learn
-    X = df[feature_keys].values
-    y = df[['x', 'y', 'z']].values
-    return X, y
+        df[row.key] = Ao*np.exp(-B*distance)/distance**alpha
+    return df
 
 
-def get_misfit(df, meta, f, Q, beta, alpha, model, scaler):
-    X, y_true = get_data(df, meta, f, Q, beta, alpha)
+def distribution(
+    meta,
+    model, scaler_X, scaler_y,
+    epsg,
+    lonmin, lonmax, latmin, latmax, zmin, zmax, step, z_plot, y_plot,
+    f, Q, beta, alpha,
+    transformations,
+    max_workers
+):
+    # Predict grid
+    xmin, ymin = geographic_to_cartesian(lonmin, latmin, epsg)
+    xmax, ymax = geographic_to_cartesian(lonmax, latmax, epsg)
 
-    X = scaler.transform(X)
+    # Create grids
+    # Map view
+    xh = np.arange(xmin, xmax + step, step)
+    yh = np.arange(ymin, ymax + step, step)
 
-    # Predict
-    y_pred = model.predict(X)
+    xx, yy = np.meshgrid(xh, yh)
 
-    # Error
-    df['misfit'] = np.sqrt(np.sum((y_pred - y_true)**2, axis=1))
-    return
+    z = np.ones(xx.flatten().shape)*z_plot
+
+    dfh = pd.DataFrame(dict(x=xx.flatten(), y=yy.flatten(), z=z))
+
+    # Profile view
+    zv = np.arange(zmax, zmin-step, -step)
+
+    xx, zz = np.meshgrid(xh, zv)
+    # y_plot = (meta.y.min() + meta.y.max())/2
+    y = np.ones(xx.flatten().shape)*y_plot
+
+    dfv = pd.DataFrame(dict(x=xx.flatten(), y=y, z=zz.flatten()))
+
+    for df in [dfh, dfv]:
+        df = amplitudes(df, meta, f, Q, beta, alpha, source_amplitude=False)
+
+        metadata, features = engineer(
+            df, meta, False, False, transformations, max_workers
+        )
+
+        X = features[metadata.key].values
+        y = features[['x', 'y', 'z']].values
+
+        # Scale features
+        X = scaler_X.transform(X)
+
+        # Predict
+        y_pred = model.predict(X)
+
+        y_pred = scaler_y.inverse_transform(y_pred)
+        # Error
+        df['misfit'] = np.sqrt(np.sum((y_pred - y)**2, axis=1))
+    # return dfh, dfv, xh, yh, zv, y_plot
+    return dfh, dfv, xh, yh, zv
 
 
 if __name__ == '__main__':

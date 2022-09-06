@@ -24,62 +24,61 @@ __email__  = 'laat@umich.edu'
 
 
 def main():
+    # Parse arguments
     args = tl.utils.parse_args()
 
+    # Logger
+    logger = tl.utils.get_logger()
+
+    # Get configuration
     c = tl.config.read(args.configfile)
 
     # Create output folder
     folderpath = tl.utils.create_folder(c.io.output_dir, 'LOCS', c.io.overwrite)
 
-    scaler_X_file = os.path.join(c.predict.model_dir, 'scaler_X.pkl')
-    scaler_y_file = os.path.join(c.predict.model_dir, 'scaler_y.pkl')
-    model_file = os.path.join(c.predict.model_dir, 'model.pkl')
-
-    # Model and scaler
-    with open(scaler_X_file, 'rb') as f:
+    # Load model and scaler
+    with open(os.path.join(c.predict.model_dir, 'scaler_X.pkl'), 'rb') as f:
         scaler_X = pickle.load(f)
-    with open(scaler_y_file, 'rb') as f:
+    with open(os.path.join(c.predict.model_dir, 'scaler_y.pkl'), 'rb') as f:
         scaler_y = pickle.load(f)
-    with open(model_file, 'rb') as f:
+    with open(os.path.join(c.predict.model_dir, 'model.pkl'), 'rb') as f:
         model = pickle.load(f)
 
-    # Load data
-    df = pd.read_csv(c.predict.features_file, index_col='datetime', parse_dates=True)
-    df = df[[c for c in df.columns if '_' in c]]
-
     # Load metadata
-    channels = pd.read_csv(c.features.channels_csv, comment='/')
-    meta = tl.features.to_dataframe(channels, c.features.bands)
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
+    stations = channels.station.unique()
 
-    n_features = len(meta)
-    feature_keys = []
-    for i in range(0, n_features-1):
-        for j in range(i+1, n_features):
-            feature_i = meta.iloc[i]
-            feature_j = meta.iloc[j]
+    # Features metadata
+    meta = pd.read_csv(os.path.join(c.predict.feat_folder, 'meta.csv'))
 
-            # Do not compute ratios between the same station
-            # if feature_i.station == feature_j.station:
-            #     continue
-            # Do not compute ratios between different bands
-            if (feature_i.freqmin != feature_j.freqmin) or \
-               (feature_i.freqmax != feature_j.freqmax):
-                continue
+    # Filter meta data
+    meta = tl.features.filter(
+        meta,
+        channels.station.unique(),
+        channels.channel.unique(),
+        c.amplitude.bands,
+        c.engineer.ratio_diff_bands,
+        c.engineer.ratio_same_station,
+        c.engineer.transformations
+    )
 
-            ratio = f'{feature_i.key}_{feature_j.key}'
+    logger.info(f'{len(meta)} features')
 
-            df[ratio] = df[feature_i.key] / df[feature_j.key]
-            df[ratio+'_sqrt'] = np.sqrt(df[ratio])
-            # df[ratio+'_log']  = np.log(df[ratio])
+    # Load data
+    logger.info('Loading data...')
+    df = pd.read_csv(
+        os.path.join(c.predict.feat_folder, 'data.csv'),
+        usecols=meta.key.tolist()+['datetime']
+    )
 
-            # feature_keys.append(ratio)
-            feature_keys.append(ratio+'_sqrt')
-            # feature_keys.append(ratio+'_log')
+    # To NumPy arrays for SciKit-Learn
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    # TODO imputation
+    df.dropna(inplace=True)
+
+    X = df[meta.key].values
 
     # Standarize data
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(inplace=True)
-    X = df[feature_keys].values
     X = scaler_X.transform(X)
 
     # Predict
@@ -98,6 +97,9 @@ def main():
 
     fig = tl.plot.locations(df, sta, s=1)
     fig.savefig(os.path.join(folderpath, 'locs.pdf'), dpi=300)
+
+    fig = tl.plot.loc_timeseries(df)
+    fig.savefig(os.path.join(folderpath, 'locs_timeseries.pdf'), dpi=300)
 
     tl.utils.write_conf(c, folderpath)
     return

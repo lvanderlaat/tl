@@ -68,7 +68,7 @@ def main():
     )
 
     # List of tuples (station, channel)
-    df_inv = pd.read_csv(c.features.channels_csv, comment='/')
+    df_inv = pd.read_csv(c.amplitude.channels_csv, comment='/')
     network = ','.join(list(df_inv.network.unique()))
     station = ','.join(list(df_inv.station.unique()))
     channel = ','.join(list(df_inv.channel.unique()))

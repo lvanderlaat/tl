@@ -35,13 +35,23 @@ DATETIME_FMT  = '%Y%m%dT%H%M%SZ'
 SAMPLING_RATE = 100.
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+
+def extract_synth(meta, c):
+    # Read catalog
+    df = tl.catalog.read(c.dataset.catalog)
+
+    # Filter catalog
+    df = tl.catalog.filter(
+        df,
+        magnitude_min=c.dataset.magnitude_min,
+        magnitude_max=c.dataset.magnitude_max,
+        n_events=c.dataset.n_events
     )
-    parser.add_argument('configfile', help='Configuration file path')
-    parser.add_argument('datatype', help='"eq" or "tremor"')
-    return parser.parse_args()
+
+    df = tl.synth.amplitudes(
+        df, meta, c.synth.f, c.synth.Q, c.synth.beta, c.synth.alpha
+    )
+    return df
 
 
 def _extract_earthquake(
@@ -208,65 +218,70 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
 
 
 def main():
-    # Parse only argument: YAML file
-    args = parse_args()
-
-    logger = tl.utils.get_logger()
+    # Parse arguments
+    args = tl.utils.parse_args(datatypes=['SY', 'EQ', 'TR'])
 
     # Parse configuration YAML file
     c = tl.config.read(args.configfile)
-
 
     # Logger
     logger = tl.utils.get_logger()
 
     # List of tuples (station, channel)
-    channels = pd.read_csv(c.features.channels_csv, comment='/')
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
     stachas = [
         (channel.station, channel.channel) for i, channel in channels.iterrows()
     ]
 
     # features metadata
-    meta = tl.features.to_dataframe(channels, c.features.bands)
+    meta = tl.features.to_dataframe(channels, c.amplitude.bands)
 
-    # Determine the filter polynomials
-    filter_polynomials = []
-    for band in c.features.bands:
-        nyquist = 0.5 * SAMPLING_RATE/c.preprocess.decimation_factor
-        low  = band[0] / nyquist
-        high = band[1] / nyquist
-        b, a = scipy.signal.butter(c.features.order, [low, high], btype='band')
-        filter_polynomials.append((b, a))
+    if args.datatype == 'SY':
+        logger.info('Calculating amplitudes...')
+        # Only one channel per station and only one band
+        bands = [c.amplitude.bands[0]]
+        meta = tl.features.to_dataframe(channels, bands)
+        meta = meta[meta.channel.isin(['HHZ', 'EHZ'])]
+        meta = meta.drop_duplicates(subset='station')
 
-    # Read the inventory, stations response information
-    inventory = obspy.read_inventory(c.preprocess.inventory)
+        df = extract_synth(meta, c)
+        fig = tl.plot.amp_dist_mag(df, bands, channels, cols=1, rows=1)
 
-    logger.info('Processing...')
-    if args.datatype == 'eq':
+    if args.datatype in ['EQ', 'TR']:
+        logger.info('Measuring amplitudes...')
+        # Determine the filter polynomials
+        filter_polynomials = []
+        for band in c.amplitude.bands:
+            nyquist = 0.5 * SAMPLING_RATE/c.preprocess.decimation_factor
+            low  = band[0] / nyquist
+            high = band[1] / nyquist
+            b, a = scipy.signal.butter(c.amplitude.order, [low, high], btype='band')
+            filter_polynomials.append((b, a))
+
+        # Read the inventory, stations response information
+        inventory = obspy.read_inventory(c.preprocess.inventory)
+
+    # Earthquakes or tremor
+    if args.datatype == 'EQ':
         df = extract_earthquakes(c, inventory, stachas, filter_polynomials, meta.key)
-
-        logger.info('Writing output...')
-
-        fig = tl.plot.amp_dist_mag(df, c.features.bands, channels)
-
-        foldername = 'FEAT_EQ'
-    elif args.datatype == 'tremor':
+        fig = tl.plot.amp_dist_mag(df, c.amplitude.bands, channels)
+    elif args.datatype == 'TR':
         df = extract_tremor(c, inventory, stachas, filter_polynomials, meta.key)
-
         fig = tl.plot.amp_timeseries(df)
 
-        foldername = 'FEAT_TR'
 
-    folderpath = tl.utils.create_folder(c.io.output_dir, foldername, c.io.overwrite)
+    logger.info('Writing output...')
+    folderpath = tl.utils.create_folder(c.io.output_dir, f'AMP', c.io.overwrite)
     fig.savefig(os.path.join(folderpath, 'amplitudes.pdf'), dpi=300)
 
-    # Data csv
+    # Data and metadata export to csv
+    meta.to_csv(os.path.join(folderpath, 'meta.csv'), index=False)
     df.to_csv(os.path.join(folderpath, 'data.csv'), index=False)
 
     # Output configuration used in this processing
     tl.utils.write_conf(c, folderpath)
 
-    logger.info('Done.')
+    logger.info('Feature extraction done.')
     return
 
 

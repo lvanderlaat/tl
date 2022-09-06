@@ -169,6 +169,9 @@ def locations(df, sta, s=1, figwidth=4.6, width=0.65, bottom=0.05):
     ax1.scatter(sta.x, sta.y, s=25, c='k', marker='^')
     ax2.scatter(sta.x, sta.z, s=25, c='k', marker='^')
 
+    for ax in [ax1, ax2]:
+        ax.grid('on')
+
     # Layout
     # adjust_map_section(fig, ax1, ax2, figwidth, width, bottom)
 
@@ -511,6 +514,22 @@ def ratio_timeseries(df, meta):
             ax.scatter(df.index, ratio, lw=0, alpha=0.7, s=0.1, rasterized=True)
     ax.set_yscale('log')
     return fig
+
+
+def loc_timeseries(df):
+    fig, axes = plt.subplots(figsize=(7.4, 6), nrows=3, ncols=1, sharex=True)
+    fig.subplots_adjust(hspace=0)
+
+    axes[0].set_ylabel('Cartesian easting [m]')
+    axes[1].set_ylabel('Cartesian northing [m]')
+    axes[2].set_ylabel('Elevation [m]')
+
+    for ax, dim in zip(axes, ['x', 'y', 'z']):
+        ax.scatter(df.index, df[dim], s=10, rasterized=True)
+        ax.grid('on')
+
+    return fig
+
 
 if __name__ == '__main__':
     pass

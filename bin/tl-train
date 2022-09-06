@@ -7,7 +7,6 @@ Train a linear regression mode for earthquake/tremor location
 
 
 # Python Standard Library
-import datetime
 import os
 import pickle
 import warnings
@@ -29,25 +28,46 @@ __email__  = 'laat@umich.edu'
 
 
 def main():
-    # Parse configuration file
-    args = tl.utils.parse_args()
+    # Parse arguments
+    args = tl.utils.parse_args(datatypes=['SY', 'EQ'])
+
+    # Logger
+    logger = tl.utils.get_logger()
 
     # Get configuration
     c = tl.config.read(args.configfile)
 
     # Create output folder
-    folderpath = tl.utils.create_folder(c.io.output_dir, 'MODEL', c.io.overwrite)
-    # Logger
-    logger = tl.utils.get_logger()
+    folderpath = tl.utils.create_folder(
+        c.io.output_dir, f'MODEL_{args.datatype}', c.io.overwrite
+    )
 
     # Load metadata
-    channels = pd.read_csv(c.features.channels_csv, comment='/')
-    # features metadata
-    meta = tl.features.to_dataframe(channels, c.features.bands)
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
+    stations = channels.station.unique()
+
+    # Features metadata
+    meta = pd.read_csv(os.path.join(c.train.feat_folder, 'meta.csv'))
+
+    # Filter meta data
+    meta = tl.features.filter(
+        meta,
+        channels.station.unique(),
+        channels.channel.unique(),
+        c.amplitude.bands,
+        c.engineer.ratio_diff_bands,
+        c.engineer.ratio_same_station,
+        c.engineer.transformations
+    )
+
+    logger.info(f'{len(meta)} features')
 
     # Load data
     logger.info('Loading data...')
-    df = pd.read_csv(c.train.data_file)
+    df = pd.read_csv(
+        os.path.join(c.train.feat_folder, 'data.csv'),
+        usecols=meta.key.tolist()+['x', 'y', 'z', 'magnitude', 'eventid']
+    )
 
     # Filter data
     df = tl.catalog.filter(
@@ -57,40 +77,12 @@ def main():
         n_events=c.dataset.n_events
     )
 
-    # Feature engeneering
-    logger.info('Feature engeneering...')
-    n_features = len(meta)
-    feature_keys = []
-    for i in range(0, n_features-1):
-        for j in range(i+1, n_features):
-            feature_i = meta.iloc[i]
-            feature_j = meta.iloc[j]
-
-            # Do not compute ratios between the same station
-            # if feature_i.station == feature_j.station:
-            #     continue
-
-            # Do not compute ratios between different bands
-            if (feature_i.freqmin != feature_j.freqmin) or \
-               (feature_i.freqmax != feature_j.freqmax):
-                continue
-
-            ratio = f'{feature_i.key}_{feature_j.key}'
-
-            df[ratio] = df[feature_i.key] / df[feature_j.key]
-            df[ratio+'_sqrt'] = np.sqrt(df[ratio])
-            # df[ratio+'_log']  = np.log(df[ratio])
-
-            # feature_keys.append(ratio)
-            feature_keys.append(ratio+'_sqrt')
-            # feature_keys.append(ratio+'_log')
-    logger.info(f'{len(feature_keys)} features computed.')
-
     # To NumPy arrays for SciKit-Learn
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    # TODO imputation
     df.dropna(inplace=True)
 
-    X = df[feature_keys].values
+    X = df[meta.key].values
     y = df[['x', 'y', 'z']].values
 
     # Normalize location (Kriegerowski et al., 2019)
@@ -113,7 +105,7 @@ def main():
     )
 
     # Model
-    model = RidgeCV(alphas=[1e1, 1e2, 1e3, 1e4])
+    model = RidgeCV(alphas=[1e-2, 1e-1, 1e1, 1e2, 1e3, 1e4])
 
     # Normalize
     scaler_X = StandardScaler()
@@ -143,16 +135,18 @@ def main():
 
     # Test Output Data
     df_true, df_pred = tl.train.results_to_df(y_test, y_pred, misfits, evid_test)
+    df_true.to_csv(os.path.join(folderpath, 'test_true.csv'), index=False)
+    df_pred.to_csv(os.path.join(folderpath, 'test_pred.csv'), index=False)
 
     # Plots
     fig = tl.plot.misfits_histograms(df_true, df_pred)
     fig.savefig(os.path.join(folderpath, 'test_misfits_histograms.pdf'))
 
-    sta = meta.drop_duplicates(subset='station')
+    sta = channels.drop_duplicates(subset='station')
     fig = tl.plot.locs_test_sample(df_true, df_pred, sta)
     fig.savefig(os.path.join(folderpath, 'test_locs_sample.pdf'), dpi=300)
 
-    fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=10)
+    fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=5)
     fig.savefig(os.path.join(folderpath, 'test_locs_all.pdf'), dpi=300)
 
     # Total data set
@@ -186,16 +180,6 @@ def main():
     # Test Output Data
     df_true, df_pred = tl.train.results_to_df(y, y_pred, misfits, eventids)
 
-    # Plots
-    # fig = tl.plot.misfits_histograms(df_true, df_pred)
-    # fig.savefig(os.path.join(folderpath, 'tot_misfits_histograms.pdf'))
-
-    # fig = tl.plot.locs_test_sample(df_true, df_pred, sta)
-    # fig.savefig(os.path.join(folderpath, 'tot_locs_sample.pdf'), dpi=300)
-
-    # fig = tl.plot.locs_true_pred(df_true, df_pred, sta, s=10)
-    # fig.savefig(os.path.join(folderpath, 'tot_locs_all.pdf'), dpi=300)
-
     # Save the scaler and the model
     for name, obj in zip(
         'scaler_X scaler_y model'.split(), [scaler_X, scaler_y, model]
@@ -203,7 +187,35 @@ def main():
         pickle.dump(obj, open(os.path.join(folderpath, f'{name}.pkl'), 'wb'))
 
     tl.utils.write_conf(c, folderpath)
-    logger.info('Done')
+
+    if args.datatype == 'SY':
+        # Where the EW slice is gonna be
+        y_plot = (sta.y.min() + sta.y.max())/2
+
+        # Get metadata for amplitude data
+        bands = [c.amplitude.bands[0]]
+        meta = tl.features.to_dataframe(channels, bands)
+        meta = meta[meta.channel.isin(['HHZ', 'EHZ'])]
+        meta = meta.drop_duplicates(subset='station')
+
+        # Compute misfit distribution
+        dfh, dfv, xh, yh, zv = tl.synth.distribution(
+            meta,
+            model, scaler_X, scaler_y,
+            c.projection.epsg,
+            c.synth.lonmin, c.synth.lonmax, c.synth.latmin, c.synth.latmax,
+            c.synth.zmin, c.synth.zmax, c.synth.step, c.synth.z_plot, y_plot,
+            c.synth.f, c.synth.Q, c.synth.beta, c.synth.alpha,
+            c.engineer.transformations,
+            c.performance.max_workers
+        )
+
+        # Plot misfit distribution
+        fig = tl.plot.synth_misfit(
+            dfh, dfv, sta, y_plot, c.synth.z_plot, xh, yh, xh, zv,
+            c.synth.step
+        )
+        fig.savefig(os.path.join(folderpath, 'misfit.pdf'), dpi=300)
     return
 
 

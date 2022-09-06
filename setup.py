@@ -20,11 +20,11 @@ setup(
     scripts          = [
         'bin/tl-clean',
         'bin/tl-feature-extraction',
+        'bin/tl-feature-engineering',
         'bin/tl-get-wfs-eq',
         'bin/tl-help',
         'bin/tl-predict',
         'bin/tl-scan',
-        'bin/tl-synth',
         'bin/tl-train',
     ],
     zip_safe         = False

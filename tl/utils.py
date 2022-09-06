@@ -48,11 +48,18 @@ def scan_dir(wfs_dir, datetime_fmt='%Y%m%dT%H%M%SZ'):
     return df
 
 
-def parse_args():
+def parse_args(datatypes=None):
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument('configfile', help='Configuration file path')
+    if datatypes is not None:
+        parser.add_argument(
+            'datatype',
+            help= 'type of data',
+            choices=datatypes
+        )
+
     return parser.parse_args()
 
 
@@ -76,14 +83,15 @@ def get_logger():
     logger.setLevel(logging.INFO)
 
     # Print it as well as keep file
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.INFO)
 
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
     return logger
 
 

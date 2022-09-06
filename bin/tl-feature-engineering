@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+
+
+"""
+"""
+
+
+# Python Standard Library
+import os
+
+# Other dependencies
+import pandas as pd
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def main():
+    # Logger
+    logger = tl.utils.get_logger()
+
+    # Parse arguments
+    args = tl.utils.parse_args()
+
+    # Parse configuration YAML file
+    c = tl.config.read(args.configfile)
+
+    # Create output folderpath
+    folderpath = tl.utils.create_folder(c.io.output_dir, f'FEAT', c.io.overwrite)
+
+    # List of tuples (station, channel)
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
+
+    # Load data and metadata
+    meta = pd.read_csv(os.path.join(c.engineer.amp_folder, 'meta.csv'))
+    df   = pd.read_csv(os.path.join(c.engineer.amp_folder, 'data.csv'))
+
+    # Feature engineering
+    logger.info('Feature engineering...')
+    metadata, features = tl.features.engineer(
+        df, meta,
+        c.engineer.ratio_same_station,
+        c.engineer.ratio_diff_bands,
+        c.engineer.transformations,
+        c.performance.max_workers
+    )
+
+    logger.info(f'{len(metadata)} features.')
+
+    # To disk
+    metadata.to_csv(os.path.join(folderpath, 'meta.csv'), index=False)
+    features.to_csv(os.path.join(folderpath, 'data.csv'), index=False)
+    return
+
+
+if __name__ == '__main__':
+    main()
