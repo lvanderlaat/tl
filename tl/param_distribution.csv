@@ -20,7 +20,7 @@ dataset,magnitude_max,1,1,1,0,0,1,1,0
 dataset,n_events,1,1,1,0,0,1,1,0
 dataset,pre,1,0,0,0,0,0,0,0
 dataset,pos,1,0,0,0,0,0,0,0
-dataset,wfs_dir,1,0,1,0,0,0,0,0
+dataset,wfs_dir,0,0,1,0,0,0,0,0
 synth,Q,0,1,0,0,0,1,0,0
 synth,f,0,1,0,0,0,1,0,0
 synth,beta,0,1,0,0,0,1,0,0

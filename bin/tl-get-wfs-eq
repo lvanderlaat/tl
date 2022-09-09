@@ -77,7 +77,7 @@ def main():
     client = Client('IRIS')
 
     df['filepath']  = df.eventid.apply(
-        lambda x: os.path.join(c.dataset.wfs_dir, f'{x}.mseed')
+        lambda x: os.path.join(folderpath, f'{x}.mseed')
     )
     df['starttime'] = df.time - pd.Timedelta(c.dataset.pre, 'seconds')
     df['endtime']   = df.time + pd.Timedelta(c.dataset.pos, 'seconds')
