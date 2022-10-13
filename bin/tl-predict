@@ -15,6 +15,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from sklearn.impute import SimpleImputer
+
 # Local files
 import tl
 
@@ -46,37 +48,32 @@ def main():
 
     # Load metadata
     channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
-    stations = channels.station.unique()
+    meta = tl.features.to_dataframe(channels, c.amplitude.bands)
+    df   = pd.read_csv(
+        c.predict.data_file, index_col='datetime', parse_dates=['datetime']
+    )
 
-    # Features metadata
-    meta = pd.read_csv(os.path.join(c.predict.feat_folder, 'meta.csv'))
-
-    # Filter meta data
-    meta = tl.features.filter(
-        meta,
-        channels.station.unique(),
-        channels.channel.unique(),
-        c.amplitude.bands,
-        c.engineer.ratio_diff_bands,
+    # Feature engineering
+    logger.info('Feature engineering...')
+    metadata, features = tl.features.engineer(
+        df, meta,
         c.engineer.ratio_same_station,
-        c.engineer.transformations
+        c.engineer.ratio_diff_bands,
+        c.engineer.transformations,
+        c.performance.max_workers
     )
 
-    logger.info(f'{len(meta)} features')
-
-    # Load data
-    logger.info('Loading data...')
-    df = pd.read_csv(
-        os.path.join(c.predict.feat_folder, 'data.csv'),
-        usecols=meta.key.tolist()+['datetime']
-    )
+    logger.info(f'{len(metadata)} features')
 
     # To NumPy arrays for SciKit-Learn
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    # TODO imputation
-    df.dropna(inplace=True)
+    features.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    X = df[meta.key].values
+    X = features[metadata.key].values
+
+    # Impute NaN values
+    logger.info('Imputing NaN values')
+    imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+    X = imputer.fit_transform(X)
 
     # Standarize data
     X = scaler_X.transform(X)

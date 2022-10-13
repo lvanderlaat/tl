@@ -1,0 +1,166 @@
+#!/usr/bin/env python
+
+
+"""
+Train a linear regression mode for earthquake/tremor location
+"""
+
+
+# Python Standard Library
+import itertools
+import os
+import pickle
+import warnings
+
+# Other dependencies
+import numpy as np
+import pandas as pd
+
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+
+# Local files
+import tl
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def main():
+
+    # Parse arguments
+    args = tl.utils.parse_args(datatypes=['SY', 'EQ'])
+
+    # Logger
+    logger = tl.utils.get_logger()
+
+    # Get configuration
+    c = tl.config.read(args.configfile)
+
+    # Create output folder
+    folderpath = tl.utils.create_folder(
+        c.io.output_dir, f'FEATURE_SELECTION_{args.datatype}', c.io.overwrite
+    )
+
+    # Load metadata
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
+    stations = channels.station.unique()
+
+
+    tl.utils.write_conf(c, folderpath)
+
+    # Feature engineering
+    transformations = 'R sqrt log W'.split()
+    combinations, keys = [], []
+    for n in range(1, 5):
+        for combination in itertools.combinations(transformations, n):
+            combinations.append(combination)
+            keys.append('_'.join(combination))
+
+    data = []
+    print(len(combinations))
+    for transformations, key in zip(combinations, keys):
+        logger.info(transformations)
+
+        # Amplitude data and metadata
+        # TODO check if the meta is being filtered, e.g. bands
+        meta = pd.read_csv(os.path.join(c.engineer.amp_folder, 'meta.csv'))
+        df   = pd.read_csv(os.path.join(c.engineer.amp_folder, 'data.csv'))
+
+        # Filter data
+        df = tl.catalog.filter(
+            df,
+            magnitude_min=c.dataset.magnitude_min,
+            magnitude_max=c.dataset.magnitude_max,
+            n_events=c.dataset.n_events
+        )
+
+        logger.info('Feature engineering...')
+        metadata, features = tl.features.engineer(
+            df, meta,
+            c.engineer.ratio_same_station,
+            c.engineer.ratio_diff_bands,
+            transformations,
+            c.performance.max_workers
+        )
+
+        logger.info(f'{len(metadata)} features')
+
+        # Get rid of missing values
+        features.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+        # To NumPy arrays for SciKit-Learn
+        X = features[metadata.key].values
+        y = features[['x', 'y', 'z']].values
+
+        # Impute NaN values
+        logger.info('Imputing NaN values')
+        imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+        X = imputer.fit_transform(X)
+
+        # Normalize location (Kriegerowski et al., 2019)
+        scaler_y = StandardScaler()
+        y = scaler_y.fit_transform(y)
+
+        # Test-train
+        logger.info(f'Training with {(1-c.train.test_size)*100}% of the dataset')
+
+        eventids = features.eventid.values
+
+        # Split training and testing data sets
+        X_train, X_test, y_train, y_test, evid_train, evid_test = train_test_split(
+            X, y, eventids, test_size=c.train.test_size,
+            random_state=c.train.random_state
+        )
+
+        logger.info(
+            f'n={X.shape[0]}, n(train)={X_train.shape[0]}, n(test)={X_test.shape[0]}'
+        )
+
+        # Model
+        model = Ridge(alpha=100)
+
+        # Normalize
+        scaler_X = StandardScaler()
+        scaler_X.fit(X_train)
+        X_train = scaler_X.transform(X_train)
+        X_test  = scaler_X.transform(X_test)
+
+        # Fit the model
+        logger.info('Training...')
+        model.fit(X_train, y_train)
+
+        # Predict test set
+        logger.info('Predicting test set...')
+        y_pred = model.predict(X_test)
+
+        # Re-scale
+        y_pred = scaler_y.inverse_transform(y_pred)
+        y_test = scaler_y.inverse_transform(y_test)
+
+        # Error
+        misfits, interval, stdev = tl.train.get_scores(y_test, y_pred)
+        test_error = int(misfits.mean())
+        logger.info(f'Test error: {test_error} m')
+        logger.info(f'Standard deviation (xyz): {stdev.astype(int)} m')
+        logger.info(f'Prediction interval (xyz): {interval.astype(int)} m')
+
+        data.append(dict(
+            key=key,
+            error=test_error,
+            x=int(stdev[0]),
+            y=int(stdev[1]),
+            z=int(stdev[2]),
+        ))
+
+    pd.DataFrame(data).to_csv(os.path.join(folderpath, 'results.csv'), index=False)
+
+    return
+
+
+if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
+    main()

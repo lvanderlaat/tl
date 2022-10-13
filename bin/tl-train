@@ -18,6 +18,7 @@ import pandas as pd
 from sklearn.linear_model import RidgeCV, Ridge
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
 
 # Local files
 import tl
@@ -44,30 +45,17 @@ def main():
 
     # Load metadata
     channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
-    stations = channels.station.unique()
 
-    # Features metadata
-    meta = pd.read_csv(os.path.join(c.train.feat_folder, 'meta.csv'))
+    # Amplitude data and metadata
+    meta = tl.features.to_dataframe(channels, c.amplitude.bands)
+    if args.datatype == 'SY':
+        # Get metadata for amplitude data
+        bands = [c.amplitude.bands[0]]
+        meta = tl.features.to_dataframe(channels, bands)
+        meta = meta[meta.channel.isin(['HHZ', 'EHZ'])]
+        meta = meta.drop_duplicates(subset='station')
 
-    # Filter meta data
-    meta = tl.features.filter(
-        meta,
-        channels.station.unique(),
-        channels.channel.unique(),
-        c.amplitude.bands,
-        c.engineer.ratio_diff_bands,
-        c.engineer.ratio_same_station,
-        c.engineer.transformations
-    )
-
-    logger.info(f'{len(meta)} features')
-
-    # Load data
-    logger.info('Loading data...')
-    df = pd.read_csv(
-        os.path.join(c.train.feat_folder, 'data.csv'),
-        usecols=meta.key.tolist()+['x', 'y', 'z', 'magnitude', 'eventid']
-    )
+    df   = pd.read_csv(os.path.join(c.engineer.amp_folder, 'data.csv'))
 
     # Filter data
     df = tl.catalog.filter(
@@ -77,13 +65,29 @@ def main():
         n_events=c.dataset.n_events
     )
 
-    # To NumPy arrays for SciKit-Learn
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    # TODO imputation
-    df.dropna(inplace=True)
+    # Feature engineering
+    logger.info('Feature engineering...')
+    metadata, features = tl.features.engineer(
+        df, meta,
+        c.engineer.ratio_same_station,
+        c.engineer.ratio_diff_bands,
+        c.engineer.transformations,
+        c.performance.max_workers
+    )
 
-    X = df[meta.key].values
-    y = df[['x', 'y', 'z']].values
+    logger.info(f'{len(metadata)} features')
+
+    # Get rid of missing values, in the future imputation can be explored
+    features.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+    # To NumPy arrays for SciKit-Learn
+    X = features[metadata.key].values
+    y = features[['x', 'y', 'z']].values
+
+    # Impute NaN values
+    logger.info('Imputing NaN values')
+    imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+    X = imputer.fit_transform(X)
 
     # Normalize location (Kriegerowski et al., 2019)
     scaler_y = StandardScaler()
@@ -92,7 +96,7 @@ def main():
     # Test-train
     logger.info(f'Training with {(1-c.train.test_size)*100}% of the dataset')
 
-    eventids = df.eventid.values
+    eventids = features.eventid.values
 
     # Split training and testing data sets
     X_train, X_test, y_train, y_test, evid_train, evid_test = train_test_split(
@@ -105,7 +109,7 @@ def main():
     )
 
     # Model
-    model = RidgeCV(alphas=[1e-2, 1e-1, 1e1, 1e2, 1e3, 1e4])
+    model = RidgeCV(alphas=[1e2, 1e3, 1e4])
 
     # Normalize
     scaler_X = StandardScaler()
@@ -192,11 +196,6 @@ def main():
         # Where the EW slice is gonna be
         y_plot = (sta.y.min() + sta.y.max())/2
 
-        # Get metadata for amplitude data
-        bands = [c.amplitude.bands[0]]
-        meta = tl.features.to_dataframe(channels, bands)
-        meta = meta[meta.channel.isin(['HHZ', 'EHZ'])]
-        meta = meta.drop_duplicates(subset='station')
 
         # Compute misfit distribution
         dfh, dfv, xh, yh, zv = tl.synth.distribution(

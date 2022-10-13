@@ -21,6 +21,7 @@ setup(
         'bin/tl-clean',
         'bin/tl-feature-extraction',
         'bin/tl-feature-engineering',
+        'bin/tl-feature-selection',
         'bin/tl-get-wfs-eq',
         'bin/tl-help',
         'bin/tl-predict',

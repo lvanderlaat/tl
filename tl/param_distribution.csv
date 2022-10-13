@@ -1,7 +1,7 @@
 section,parameter,get-wfs-eq,feature-extraction-SY,feature-extraction-EQ,feature-extraction-TR,feature-engineer,train-SY,train-EQ,predict
 io,output_dir,1,1,1,1,1,1,1,1
 io,overwrite,1,1,1,1,1,1,1,1
-performance,max_workers,1,0,1,1,1,1,0,0
+performance,max_workers,1,0,1,1,1,1,1,0
 projection,epsg,0,0,0,0,0,1,0,0
 preprocess,inventory,0,0,1,1,0,0,0,0
 preprocess,decimation_factor,0,0,1,1,0,0,0,0
@@ -10,7 +10,7 @@ preprocess,freqmax,0,0,1,1,0,0,0,0
 amplitude,channels_csv,1,1,1,1,1,1,1,1
 amplitude,bands,0,1,1,1,0,1,1,1
 amplitude,order,0,0,1,1,0,0,0,0
-engineer,amp_folder,0,0,0,0,1,0,0,0
+engineer,amp_folder,0,0,0,0,1,1,1,0
 engineer,ratio_same_station,0,0,0,0,1,1,1,1
 engineer,ratio_diff_bands,0,0,0,0,1,1,1,1
 engineer,transformations,0,0,0,0,1,1,1,1
@@ -35,11 +35,11 @@ synth,step,0,0,0,0,0,1,0,0
 synth,z_plot,0,0,0,0,0,1,0,0
 train,test_size,0,0,0,0,0,1,1,0
 train,random_state,0,0,0,0,0,1,1,0
-train,feat_folder,0,0,0,0,0,1,1,0
+train,feat_folder,0,0,0,0,0,0,0,0
 tremor,wfs_dir,0,0,0,1,0,0,0,0
 tremor,window_length,0,0,0,1,0,0,0,0
 tremor,overlap,0,0,0,1,0,0,0,0
 tremor,startdate,0,0,0,1,0,0,0,0
 tremor,enddate,0,0,0,1,0,0,0,0
 predict,model_dir,0,0,0,0,0,0,0,1
-predict,feat_folder,0,0,0,0,0,0,0,1
+predict,data_file,0,0,0,0,0,0,0,1

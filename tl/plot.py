@@ -119,7 +119,7 @@ def locs_test_sample(
     ax1.scatter(df1.x, df1.y, c='k', marker='x', label='True', cmap='inferno')
     scatter = ax1.scatter(
         df2.x, df2.y, s=s,
-        c=df2.misfit, vmin=vmin, vmax=vmax, norm=colors.LogNorm(),
+        c=df2.misfit, norm=colors.LogNorm(vmin=vmin, vmax=vmax),
         label='Predicted', cmap='inferno'
     )
     ax1.legend()
@@ -128,7 +128,7 @@ def locs_test_sample(
     ax2.scatter(df1.x, df1.z, c='k', marker='x', cmap='inferno')
     ax2.scatter(
         df2.x, df2.z, s=s,
-        c=df2.misfit, vmin=vmin, vmax=vmax, norm=colors.LogNorm(),
+        c=df2.misfit, norm=colors.LogNorm(vmin=vmin, vmax=vmax),
         cmap='inferno',
     )
 
@@ -417,7 +417,7 @@ def amp_dist_mag(df, bands, channels, cha=['HHZ', 'EHZ'],  s=10, cols=2, rows=2)
 
     position = range(1, len(bands)+1, 1)
 
-    for i, band in enumerate(bands):
+    for i, band in enumerate(bands[:4]):
         meta = features.to_dataframe(channels[channels.channel.isin(cha)], [band])
 
         columns = 'x y z magnitude'.split() + list(meta.key)
@@ -458,7 +458,7 @@ def amp_dist_mag(df, bands, channels, cha=['HHZ', 'EHZ'],  s=10, cols=2, rows=2)
         # Colorbar
         divider = make_axes_locatable(ax)
         cax = divider.append_axes('right', size='5%', pad=0.05)
-        plt.colorbar(scatter, cax=cax, label='Amplitude [$\mu m/s$]')
+        # plt.colorbar(scatter, cax=cax, label='Amplitude [$\mu m/s$]')
         ax.set_facecolor((fc, fc, fc))
     fig.tight_layout()
 

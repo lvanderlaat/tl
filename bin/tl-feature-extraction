@@ -15,12 +15,14 @@ import gc
 import itertools
 import json
 import os
+import sys
 
 # Other dependencies
 import numpy as np
 import obspy
 import pandas as pd
 import ray.util.multiprocessing as multiprocessing
+# import multiprocessing
 import scipy.signal
 
 # Local files
@@ -117,12 +119,13 @@ def _extract_tremor(
     for filename in filenames:
         st += obspy.read(os.path.join(wfs_dir, filename))
     st.merge(fill_value='interpolate')
-    print(st[0].stats.starttime)
 
     datetimes, X = tl.features.extract_time_domain(
         st, inventory, freqmin, freqmax, stachas, filter_polynomials,
         'rms', window_length=window_length, overlap=overlap
     )
+
+    print(st[0].stats.starttime, sys.getsizeof(X))
 
     del st; gc.collect()
 
@@ -195,9 +198,9 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
                 itertools.repeat(c.tremor.overlap),
             )
         )
-
     # Unzip results
     _datetimes, _X = list(map(list, zip(*results)))
+    print('DOne with multiprocessing')
 
     # Get rid of None results
     datetimes, X = [], []
@@ -211,6 +214,8 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
 
     # Concatenate the data arrays
     X = np.concatenate(X)
+    print(X.shape)
+
     df = pd.DataFrame(X, columns=columns, index=datetimes)
     df['datetime'] = df.index
     df.sort_index(inplace=True)
@@ -223,6 +228,9 @@ def main():
 
     # Parse configuration YAML file
     c = tl.config.read(args.configfile)
+
+    # Output folder directory
+    folderpath = tl.utils.create_folder(c.io.output_dir, f'AMP', c.io.overwrite)
 
     # Logger
     logger = tl.utils.get_logger()
@@ -267,12 +275,7 @@ def main():
         fig = tl.plot.amp_dist_mag(df, c.amplitude.bands, channels)
     elif args.datatype == 'TR':
         df = extract_tremor(c, inventory, stachas, filter_polynomials, meta.key)
-        fig = tl.plot.amp_timeseries(df)
-
-
-    logger.info('Writing output...')
-    folderpath = tl.utils.create_folder(c.io.output_dir, f'AMP', c.io.overwrite)
-    fig.savefig(os.path.join(folderpath, 'amplitudes.pdf'), dpi=300)
+        # fig = tl.plot.amp_timeseries(df)
 
     # Data and metadata export to csv
     meta.to_csv(os.path.join(folderpath, 'meta.csv'), index=False)
@@ -280,6 +283,9 @@ def main():
 
     # Output configuration used in this processing
     tl.utils.write_conf(c, folderpath)
+
+    logger.info('Writing output...')
+    # fig.savefig(os.path.join(folderpath, 'amplitudes.pdf'), dpi=300)
 
     logger.info('Feature extraction done.')
     return
