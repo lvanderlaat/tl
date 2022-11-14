@@ -9,7 +9,6 @@ This script extract the features from the waveforms of VT events for training.
 
 
 # Python Standard Library
-import argparse
 import datetime
 import gc
 import itertools

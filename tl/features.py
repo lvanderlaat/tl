@@ -14,7 +14,10 @@ import logging
 import numpy as np
 import pandas as pd
 import scipy.signal
-import ray.util.multiprocessing as multiprocessing
+try:
+    import ray.util.multiprocessing as multiprocessing
+except:
+    import multiprocessing
 
 from scipy.special import lambertw
 

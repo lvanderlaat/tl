@@ -12,7 +12,7 @@ preprocess:                                         # ==========================
     freqmax: 24                                     # float, maximum frequency for bandpass filter [Hz]
 amplitude:                                          # ======================== FEATURE EXTRACTION ========================
     channels_csv: channels.csv                      # str, path to channels csv file
-    bands: [[0.5, 1], [0.03, 3]]                    # list of lists, [[min(f1), max(f1)], [min(f2), max(f2)]] [Hz]
+    bands: [[0.38, 1.2], [1.2, 2.3], [2.3, 3.4], [3.4, 4.5]]
     order: 1                                        # int, order of the butterworth bandpass filter
 engineer:                                           # ======================= FEATURE ENGINEERING ========================
     amp_folder: AMP                                 # str, directory path to folder containing amplitude data and metadata

@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+
+
+"""
+Determine site amplification correction factors.
+Based on Eibl et al. (2017)
+"""
+
+
+# Python Standard Library
+import os
+
+# Other dependencies
+import numpy as np
+import pandas as pd
+import tl
+
+from scipy.optimize import curve_fit
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def attenuation(x, Q, A0, alpha, beta, f):
+    B = np.pi*f/Q/beta
+    return A0*np.exp(-B*x)/x**alpha
+
+
+def main():
+    # Parse arguments
+    args = tl.utils.parse_args()
+
+    # Parse configuration YAML file
+    c = tl.config.read(args.configfile)
+
+    # Output folder directory
+    folderpath = tl.utils.create_folder(c.io.output_dir, f'SITE', c.io.overwrite)
+
+    # Logger
+    logger = tl.utils.get_logger()
+
+    # Channels
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
+    channels = channels[channels.channel.str[-1] == 'Z']
+    channels.reset_index(inplace=True)
+
+    # features metadata
+    meta = tl.features.to_dataframe(channels, c.amplitude.bands)
+
+    # Read catalog
+    df = pd.read_csv(os.path.join(c.engineer.amp_folder, 'data.csv'))
+    df = tl.catalog.filter(
+        df,
+        magnitude_min=c.dataset.magnitude_min,
+        magnitude_max=c.dataset.magnitude_max,
+        n_events=c.dataset.n_events
+    )
+    # df = df[(df.x >= df.x.quantile(0.3)) & (df.x <= df.x.quantile(0.7))]
+
+    # Earthqueke locations
+    x = df.x.values
+    y = df.y.values
+    z = df.z.values
+
+
+    X = np.full((x.shape[0], len(channels)), np.nan)
+    for i, row in channels.iterrows():
+        X[:, i] = np.sqrt((x-row.x)**2 + (y-row.y)**2 + (z-row.z)**2)
+
+    meta['cf'] = np.nan
+    for band in c.amplitude.bands:
+        _meta = meta[(meta.freqmin == band[0]) & (meta.freqmax == band[1])]
+        _meta.reset_index(inplace=True)
+
+        Y = df[_meta.key].values
+        Y /= Y.max(axis=1, keepdims=True)
+
+        idx = np.where((X < 14e3) & (Y != 1) & (Y >= 0.015))
+        _X = X[idx]
+        _Y = Y[idx]
+
+
+        popt, pcov = curve_fit(
+            attenuation, _X.flatten(), _Y.flatten(),
+            bounds=(
+                [1,        1, 0.5, 1500, band[0]],
+                [200, np.inf,   1, 2500, band[1]]
+            ),
+        )
+        print(f' Frequency band: {band[0]}-{band[1]} Hz'.center(80, '='))
+        print(f'Q     = {popt[0]:.0f}')
+        print(f'A0    = {popt[1]:.0f}')
+        print(f'alpha = {popt[2]:.1f}')
+        print(f'beta  = {popt[3]:.0f} m/s')
+
+        for i, row in _meta.iterrows():
+            y_true = Y[:, i]
+            y_pred = attenuation(X[:, i], *popt)
+            cf = (y_true/y_pred).mean()
+            meta.loc[
+                (meta.station == row.station) & (meta.channel == row.channel) &
+                (meta.freqmin == row.freqmin) & (meta.freqmax == row.freqmax)
+            , 'cf'] = cf
+
+    meta.to_csv(os.path.join(folderpath, 'meta.csv'), index=True)
+    return
+
+
+if __name__ == '__main__':
+    main()
