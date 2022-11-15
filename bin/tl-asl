@@ -8,7 +8,9 @@ Amplitude source location
 
 # Python Standard Library
 import os
+import multiprocessing
 
+from itertools import repeat
 from linecache import getline
 
 # Other dependencies
@@ -26,20 +28,8 @@ __author__ = 'Leonardo van der Laat'
 __email__  = 'laat@umich.edu'
 
 
-def grid(xmin, xmax, ymin, ymax, zmin, zmax, cellsize):
-    x = np.arange(xmin, xmax+cellsize, cellsize)
-    y = np.arange(ymin, ymax+cellsize, cellsize)
-    z = np.arange(zmin, zmax+cellsize, cellsize)
-
-    xxx, yyy, zzz = np.meshgrid(x, y, z)
-    return xxx, yyy, zzz
-
-
-# @jit
-def locate(
-    Q, alpha, beta, f,
-    a, x, y, z, xxx, yyy, zzz
-):
+@jit(nopython=True)
+def locate(Q, alpha, beta, f, a, x, y, z, xxx, yyy, zzz):
     B = np.pi*f/Q/beta
 
     res = np.zeros(xxx.shape)
@@ -52,30 +42,40 @@ def locate(
             d_j = np.sqrt((xxx-x[j])**2 + (yyy-y[j])**2 + (zzz-z[j])**2)
 
             r_obs = a[i]/a[j]
-            r_calc = (np.exp(-B*d_i) / d_i**alpha) / \
-                     (np.exp(-B*d_j) / d_j**alpha)
+
+            r_calc = (np.exp(-B*d_i)/d_i**alpha) / (np.exp(-B*d_j)/d_j**alpha)
+
             res += (r_calc - r_obs)**2
     return np.sqrt(res)
 
 
-def main():
-    zmin = -2500
-    zmax = 1300
-    cellsize = 100
-    band = [0.38, 1.2]
-    Q, alpha, beta, f = 20, 1, 1800, 0.7
+def work(
+    Q, alpha, beta, f, a, x, y, z, xmin, xmax, ymin, ymax, zmin, zmax, cellsize
+):
+    # Create grid
+    xxx, yyy, zzz = np.meshgrid(
+        np.arange(xmin, xmax+cellsize, cellsize),
+        np.arange(ymin, ymax+cellsize, cellsize),
+        np.arange(zmin, zmax+cellsize, cellsize)
+    )
 
+    res = locate(Q, alpha, beta, f, a, x, y, z, xxx, yyy, zzz)
+    idx = np.unravel_index(res.argmin(), res.shape)
+    loc = np.array([xxx[idx], yyy[idx], zzz[idx]])
+    print(loc)
+    return loc, res[idx]
+
+
+def main():
     # Parse arguments
     args = tl.utils.parse_args()
 
     # Parse configuration YAML file
     c = tl.config.read(args.configfile)
 
-    # Output folder directory
-    # folderpath = tl.utils.create_folder(c.io.output_dir, f'ASL', c.io.overwrite)
 
-    # Logger
-    logger = tl.utils.get_logger()
+    # Output folder directory
+    folderpath = tl.utils.create_folder(c.io.output_dir, f'ASL', c.io.overwrite)
 
     # Channels
     channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
@@ -85,62 +85,63 @@ def main():
     # features metadata
     meta = tl.features.to_dataframe(channels, c.amplitude.bands)
 
-    xxx, yyy, zzz = grid(channels.x.min(), channels.x.max(), channels.y.min(),
-                         channels.y.max(), zmin, zmax, cellsize)
-
-    # Read catalog
-    df = pd.read_csv(os.path.join(c.engineer.amp_folder, 'data.csv'))
-    df = tl.catalog.filter(
-        df,
-        magnitude_min=c.dataset.magnitude_min,
-        magnitude_max=c.dataset.magnitude_max,
-        n_events=c.dataset.n_events
-    )
-
     # Read metadata
-    metadata_file = '/Users/laat/Dropbox (University of Michigan)/paper/dat/SITE/meta.csv'
     meta = pd.read_csv(metadata_file)
     meta = meta[(meta.freqmin == band[0]) & (meta.freqmax == band[1])]
+
+    # if auto_limits:
+    #     xmin = channels.x.min() - 2*cellsize
+    #     xmax = channels.x.max() + 2*cellsize
+    #     ymin = channels.y.min() - 2*cellsize
+    #     ymax = channels.y.max() + 2*cellsize
 
     # Correct site effect
     for i, row in meta.iterrows():
         df[row.key] /= row.cf
 
-    for i, row in df.iterrows():
-        res = locate(
-            Q, alpha, beta, f,
-            row[meta.key].values, meta.x.values, meta.y.values, meta.z.values,
-            xxx, yyy, zzz
-        )
-        idx = np.unravel_index(res.argmin(), res.shape)
-        loc = np.array([xxx[idx], yyy[idx], zzz[idx]])
+    args_parallel = zip(
+        repeat(Q), repeat(alpha), repeat(beta), repeat(f),
+        df[meta.key].values,
+        repeat(meta.x.values), repeat(meta.y.values), repeat(meta.z.values),
+        repeat(xmin), repeat(xmax),
+        repeat(ymin), repeat(ymax),
+        repeat(zmin), repeat(zmax),
+        repeat(cellsize)
+    )
+    with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
+        results = pool.starmap(work, args_parallel)
 
-        # _z = np.log(res[:, :, idx[1]])
-        # plt.pcolormesh(
-        #     xxx[0, :, 0], yyy[:, 0, 0], _z,
-        #     vmin=np.quantile(_z, 0.00),
-        #     vmax=np.quantile(_z, 0.975)
-        # )
-        # plt.scatter(meta.x, meta.y)
-        # plt.scatter(loc[0], loc[1], marker='*', fc='w', s=100)
-        # plt.scatter(row.x, row.y, marker='*', fc='r', s=100)
+    locs, res = list(map(list, zip(*results)))
+    locs = np.array(locs)
 
-        _z = np.log(res[idx[0]]).T
+    out = pd.DataFrame(locs, columns='x y z'.split())
+    out['res'] = res
+    out['eventid'] = eventids
 
-
-        plt.pcolormesh(
-            xxx[0, :, 0], zzz[0, 0, :], _z,
-            vmin=np.quantile(_z, 0.00),
-            vmax=np.quantile(_z, 0.95)
-        )
-        plt.scatter(meta.x, meta.z)
-        plt.scatter(loc[0], loc[2], marker='*', fc='w', s=100)
-        plt.scatter(row.x, row.z, marker='*', fc='r', s=100)
-
-        plt.show()
-        print(); exit()
+    out.to_csv(os.path.join(folderpath, 'test_pred.csv'), index=False)
     return
 
 
+
 if __name__ == '__main__':
+    zmin = -1200
+    zmax = 800
+    cellsize = 100
+    band = [0.38, 1.2]
+    Q, alpha, beta, f = 11, 0.5, 1873, 0.7
+
+    metadata_file = '/Users/laat/Dropbox (University of Michigan)/paper/dat/SITE/meta.csv'
+
+    filename = '/Users/laat/Dropbox (University of Michigan)/paper/dat/NET_ALL/PHASE_1/MODEL/test_pred.csv'
+    eventids = pd.read_csv(filename).eventid
+
+    # Read amplitude data
+    df = pd.read_csv('/Users/laat/Dropbox (University of Michigan)/paper/dat/AMP_EQ/data.csv')
+    df = df[df.eventid.isin(eventids)]
+
+    xmin = df.x.min() - 2*cellsize
+    xmax = df.x.max() + 2*cellsize
+    ymin = df.y.min() - 2*cellsize
+    ymax = df.y.max() + 2*cellsize
+
     main()

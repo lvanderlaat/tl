@@ -17,54 +17,10 @@ import pandas as pd
 import tl
 
 from scipy.optimize import curve_fit
-from scipy.special import lambertw
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.preprocessing import StandardScaler
 
 
 __author__ = 'Leonardo van der Laat'
 __email__  = 'laat@umich.edu'
-
-
-def engineer(A):
-    B = np.pi*0.7/28/1500
-    alpha = 0.5
-
-    A = A.reshape((-1, 1))
-
-    X = np.concatenate([A, np.sqrt(A), lambertw(A).real], axis=1)
-    # X = np.concatenate([np.sqrt(1/A), lambertw(np.log(1/A)).real], axis=1)
-    X = np.concatenate(
-        [lambertw(1/alpha*np.exp(np.log(29/A)/alpha)).real], axis=1
-    )
-    # X = np.concatenate([A, np.sqrt(A), np.log(A)], axis=1)
-    return X
-
-
-def get_model(A, d):
-    X = engineer(A)
-    # data = np.concatenate([X, d], axis=0)
-    n_features = X.shape[1]
-    df = pd.DataFrame(X)
-    df['d'] = d
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(inplace=True)
-
-    X = df[range(n_features)].astype(np.float64).values
-    d = df.d.values
-
-
-    scaler = StandardScaler()
-    scaler.fit(X)
-    X = scaler.transform(X)
-    model = Ridge()
-    model.fit(X, d)
-
-    A_model = np.linspace(1e-9, 1, 100)
-    X_model = engineer(A_model)
-    X_model = scaler.transform(X_model)
-    d_model = model.predict(X_model)
-    return A_model, X_model, d_model
 
 
 def attenuation(x, Q, A0, alpha, beta, f):
@@ -101,20 +57,17 @@ def main():
         magnitude_max=c.dataset.magnitude_max,
         n_events=c.dataset.n_events
     )
-    # df = df[(df.x >= df.x.quantile(0.3)) & (df.x <= df.x.quantile(0.7))]
 
     # Earthqueke locations
     x = df.x.values
     y = df.y.values
     z = df.z.values
 
-
     X = np.full((x.shape[0], len(channels)), np.nan)
     for i, row in channels.iterrows():
         X[:, i] = np.sqrt((x-row.x)**2 + (y-row.y)**2 + (z-row.z)**2)
 
     meta['cf'] = np.nan
-    alpha = 1
     for band in c.amplitude.bands:
         _meta = meta[(meta.freqmin == band[0]) & (meta.freqmax == band[1])]
         _meta.reset_index(inplace=True)
@@ -122,83 +75,62 @@ def main():
         Y = df[_meta.key].values
         Y /= Y.max(axis=1, keepdims=True)
 
+        _df = pd.DataFrame(dict(x=X.flatten(), y=Y.flatten()))
+        _df.sort_values(by='x', inplace=True)
+        _df.index = _df.x
 
-        df = pd.DataFrame(dict(x=X.flatten(), y=Y.flatten()))
-        # df = df[df.y != 1]
-        # df = df[df.x <= 14e3]
-        df.sort_values(by='x', inplace=True)
-        df.index = df.x
+        # Reduce
+        n = len(_df)
+        _df = _df[(_df.x > xmin) & (_df.x < xmax)]
+        _df = _df.groupby(_df.index//reduction_factor).median()
 
-        # # Reduce
-        # n = len(df)
-        # reduce_by = 0.1
-        # df = df[(df.x > 600) & (df.x < 13e3)]
-        # xmax = df.x.max()
-        # df = df.groupby(df.index//reduce_by).median()
-        # print(xmax//reduce_by, len(df)); exit()
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.set_title(f'{band[0]}-{band[1]} Hz')
+        ax.set_xlabel('Distance [m]')
+        ax.set_ylabel('Normalized amplitude')
+        ax.scatter(X.flatten(), Y.flatten(), s=1e-5)
+        ax.scatter(_df.x, _df.y, s=1e-2, c='r')
 
-
-
-
-        # TODO try this other way of resampling, with more control:
-        # https://www.reddit.com/r/learnpython/comments/e0i9w7/how_to_resample_nontimeseries_data_in_pandas_or/
-        df.set_index('x', inplace=True)
-        df = df.loc[~df.index.duplicated(), :]
-        new_index = np.linspace(600, 13e3, int(len(df)*0.1))
-        # df = df.reindex(df.index.union(new_index)).interpolate('linear').loc[new_index]
-        df = df.reindex(df.index.union(new_index))
-        print(df); exit()
-
-        df.reset_index(inplace=True)
-
-
-        # plt.scatter(X.flatten(), Y.flatten(), s=1e-4)
-        plt.scatter(X.flatten(), Y.flatten(), s=1e-5)
-        plt.scatter(df.x, df.y, s=1e-3)
-        # plt.show()
-        # print(len(df)); exit()
-
-        for alpha in [0.5, 1]:
+        for alpha in [1, 0.5]:
             popt, pcov = curve_fit(
-                attenuation, df.x, df.y,
+                attenuation, _df.x, _df.y,
                 bounds=(
                     [0,        1, alpha-1e-3, 1500, band[0]],
-                    [2000,   np.inf, alpha+1e-3, 3000, band[1]]
+                    [200,   np.inf, alpha+1e-3, 3500, band[1]]
                 ),
             )
             _x = np.arange(X.min(), X.max())
             _y = attenuation(_x, *popt)
 
-            plt.plot(_x, _y, label=rf'$\alpha = {alpha}$')
+            label = (
+                f'Q = {popt[0]:.0f}, '
+                rf'$A_0$ = {popt[1]:.0f}, '
+                rf'$\alpha$ = {popt[2]:.1f}, '
+                rf'$\beta$  = {popt[3]:.0f} m/s'
+            )
+            ax.plot(_x, _y, label=label)
 
-            print(f' Frequency band: {band[0]}-{band[1]} Hz'.center(80, '='))
-            print(f'Q     = {popt[0]:.0f}')
-            print(f'A0    = {popt[1]:.0f}')
-            print(f'alpha = {popt[2]:.1f}')
-            print(f'beta  = {popt[3]:.0f} m/s')
-
-
-        A_model, X_model, d_model = get_model(df.y.values, df.x.values)
-        plt.plot(d_model, A_model, label='ML', lw=2, c='r')
         plt.legend()
         plt.ylim(0, 1)
         plt.xlim(0, 14e3)
-        plt.show()
-        print(); exit()
-
+        fig.savefig(os.path.join(folderpath, f'{band[0]}-{band[1]}.png'))
 
         for i, row in _meta.iterrows():
             y_true = Y[:, i]
             y_pred = attenuation(X[:, i], *popt)
-            cf = (y_true/y_pred).mean()
+
             meta.loc[
                 (meta.station == row.station) & (meta.channel == row.channel) &
-                (meta.freqmin == row.freqmin) & (meta.freqmax == row.freqmax)
-            , 'cf'] = cf
+                (meta.freqmin == row.freqmin) & (meta.freqmax == row.freqmax),
+                'cf'
+            ] = np.median(y_true/y_pred)
 
     meta.to_csv(os.path.join(folderpath, 'meta.csv'), index=True)
     return
 
 
 if __name__ == '__main__':
+    reduction_factor = 1
+    xmin, xmax = 600, 13e3
     main()
