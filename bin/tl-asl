@@ -8,7 +8,6 @@ Amplitude source location
 
 # Python Standard Library
 import os
-import multiprocessing
 
 from itertools import repeat
 from linecache import getline
@@ -18,6 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tl
+
+try:
+    import ray.util.multiprocessing as multiprocessing
+except:
+    import multiprocessing
 
 from numba import jit
 
@@ -59,11 +63,14 @@ def work(
         np.arange(zmin, zmax+cellsize, cellsize)
     )
 
-    res = locate(Q, alpha, beta, f, a, x, y, z, xxx, yyy, zzz)
-    idx = np.unravel_index(res.argmin(), res.shape)
-    loc = np.array([xxx[idx], yyy[idx], zzz[idx]])
-    print(loc)
-    return loc, res[idx]
+    try:
+        res = locate(Q, alpha, beta, f, a, x, y, z, xxx, yyy, zzz)
+        idx = np.unravel_index(res.argmin(), res.shape)
+        loc = np.array([xxx[idx], yyy[idx], zzz[idx]])
+        print(loc)
+        return loc, res[idx]
+    except:
+        return np.full(3, np.nan), np.nan
 
 
 def main():
@@ -73,9 +80,12 @@ def main():
     # Parse configuration YAML file
     c = tl.config.read(args.configfile)
 
+    # Load amplitude data
+    df = pd.read_csv(c.asl.data_csv)
 
     # Output folder directory
     folderpath = tl.utils.create_folder(c.io.output_dir, f'ASL', c.io.overwrite)
+    tl.utils.write_conf(c, folderpath)
 
     # Channels
     channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
@@ -86,29 +96,31 @@ def main():
     meta = tl.features.to_dataframe(channels, c.amplitude.bands)
 
     # Read metadata
-    meta = pd.read_csv(metadata_file)
-    meta = meta[(meta.freqmin == band[0]) & (meta.freqmax == band[1])]
+    meta = pd.read_csv(c.asl.meta_csv)
+    meta = meta[
+        (meta.freqmin == c.asl.band[0]) & (meta.freqmax == c.asl.band[1])
+    ]
 
-    # if auto_limits:
-    #     xmin = channels.x.min() - 2*cellsize
-    #     xmax = channels.x.max() + 2*cellsize
-    #     ymin = channels.y.min() - 2*cellsize
-    #     ymax = channels.y.max() + 2*cellsize
+    xmin = channels.x.min() - 2*c.asl.cellsize
+    xmax = channels.x.max() + 2*c.asl.cellsize
+    ymin = channels.y.min() - 2*c.asl.cellsize
+    ymax = channels.y.max() + 2*c.asl.cellsize
 
     # Correct site effect
     for i, row in meta.iterrows():
         df[row.key] /= row.cf
 
     args_parallel = zip(
-        repeat(Q), repeat(alpha), repeat(beta), repeat(f),
+        repeat(c.attenuation.Q), repeat(c.attenuation.alpha),
+        repeat(c.attenuation.beta), repeat(c.attenuation.f),
         df[meta.key].values,
         repeat(meta.x.values), repeat(meta.y.values), repeat(meta.z.values),
         repeat(xmin), repeat(xmax),
         repeat(ymin), repeat(ymax),
-        repeat(zmin), repeat(zmax),
-        repeat(cellsize)
+        repeat(c.asl.zmin), repeat(c.asl.zmax),
+        repeat(c.asl.cellsize)
     )
-    with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
+    with multiprocessing.Pool(c.performance.max_workers) as pool:
         results = pool.starmap(work, args_parallel)
 
     locs, res = list(map(list, zip(*results)))
@@ -116,32 +128,11 @@ def main():
 
     out = pd.DataFrame(locs, columns='x y z'.split())
     out['res'] = res
-    out['eventid'] = eventids
+    out['eventid'] = df.eventid
 
-    out.to_csv(os.path.join(folderpath, 'test_pred.csv'), index=False)
+    out.to_csv(os.path.join(folderpath, 'locs.csv'), index=False)
     return
 
 
-
 if __name__ == '__main__':
-    zmin = -1200
-    zmax = 800
-    cellsize = 100
-    band = [0.38, 1.2]
-    Q, alpha, beta, f = 11, 0.5, 1873, 0.7
-
-    metadata_file = '/Users/laat/Dropbox (University of Michigan)/paper/dat/SITE/meta.csv'
-
-    filename = '/Users/laat/Dropbox (University of Michigan)/paper/dat/NET_ALL/PHASE_1/MODEL/test_pred.csv'
-    eventids = pd.read_csv(filename).eventid
-
-    # Read amplitude data
-    df = pd.read_csv('/Users/laat/Dropbox (University of Michigan)/paper/dat/AMP_EQ/data.csv')
-    df = df[df.eventid.isin(eventids)]
-
-    xmin = df.x.min() - 2*cellsize
-    xmax = df.x.max() + 2*cellsize
-    ymin = df.y.min() - 2*cellsize
-    ymax = df.y.max() + 2*cellsize
-
     main()

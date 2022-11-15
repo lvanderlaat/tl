@@ -18,6 +18,7 @@ setup(
     install_requires = [
     ],
     scripts          = [
+        'bin/tl-asl',
         'bin/tl-clean',
         'bin/tl-feature-extraction',
         'bin/tl-feature-engineering',
@@ -26,6 +27,7 @@ setup(
         'bin/tl-help',
         'bin/tl-predict',
         'bin/tl-scan',
+        'bin/tl-site',
         'bin/tl-train',
     ],
     zip_safe         = False
