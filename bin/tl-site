@@ -11,15 +11,60 @@ Based on Eibl et al. (2017)
 import os
 
 # Other dependencies
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tl
 
 from scipy.optimize import curve_fit
+from scipy.special import lambertw
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.preprocessing import StandardScaler
 
 
 __author__ = 'Leonardo van der Laat'
 __email__  = 'laat@umich.edu'
+
+
+def engineer(A):
+    B = np.pi*0.7/28/1500
+    alpha = 0.5
+
+    A = A.reshape((-1, 1))
+
+    X = np.concatenate([A, np.sqrt(A), lambertw(A).real], axis=1)
+    # X = np.concatenate([np.sqrt(1/A), lambertw(np.log(1/A)).real], axis=1)
+    X = np.concatenate(
+        [lambertw(1/alpha*np.exp(np.log(29/A)/alpha)).real], axis=1
+    )
+    # X = np.concatenate([A, np.sqrt(A), np.log(A)], axis=1)
+    return X
+
+
+def get_model(A, d):
+    X = engineer(A)
+    # data = np.concatenate([X, d], axis=0)
+    n_features = X.shape[1]
+    df = pd.DataFrame(X)
+    df['d'] = d
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.dropna(inplace=True)
+
+    X = df[range(n_features)].astype(np.float64).values
+    d = df.d.values
+
+
+    scaler = StandardScaler()
+    scaler.fit(X)
+    X = scaler.transform(X)
+    model = Ridge()
+    model.fit(X, d)
+
+    A_model = np.linspace(1e-9, 1, 100)
+    X_model = engineer(A_model)
+    X_model = scaler.transform(X_model)
+    d_model = model.predict(X_model)
+    return A_model, X_model, d_model
 
 
 def attenuation(x, Q, A0, alpha, beta, f):
@@ -69,6 +114,7 @@ def main():
         X[:, i] = np.sqrt((x-row.x)**2 + (y-row.y)**2 + (z-row.z)**2)
 
     meta['cf'] = np.nan
+    alpha = 1
     for band in c.amplitude.bands:
         _meta = meta[(meta.freqmin == band[0]) & (meta.freqmax == band[1])]
         _meta.reset_index(inplace=True)
@@ -76,23 +122,70 @@ def main():
         Y = df[_meta.key].values
         Y /= Y.max(axis=1, keepdims=True)
 
-        idx = np.where((X < 14e3) & (Y != 1) & (Y >= 0.015))
-        _X = X[idx]
-        _Y = Y[idx]
+
+        df = pd.DataFrame(dict(x=X.flatten(), y=Y.flatten()))
+        # df = df[df.y != 1]
+        # df = df[df.x <= 14e3]
+        df.sort_values(by='x', inplace=True)
+        df.index = df.x
+
+        # # Reduce
+        # n = len(df)
+        # reduce_by = 0.1
+        # df = df[(df.x > 600) & (df.x < 13e3)]
+        # xmax = df.x.max()
+        # df = df.groupby(df.index//reduce_by).median()
+        # print(xmax//reduce_by, len(df)); exit()
 
 
-        popt, pcov = curve_fit(
-            attenuation, _X.flatten(), _Y.flatten(),
-            bounds=(
-                [1,        1, 0.5, 1500, band[0]],
-                [200, np.inf,   1, 2500, band[1]]
-            ),
-        )
-        print(f' Frequency band: {band[0]}-{band[1]} Hz'.center(80, '='))
-        print(f'Q     = {popt[0]:.0f}')
-        print(f'A0    = {popt[1]:.0f}')
-        print(f'alpha = {popt[2]:.1f}')
-        print(f'beta  = {popt[3]:.0f} m/s')
+
+
+        # TODO try this other way of resampling, with more control:
+        # https://www.reddit.com/r/learnpython/comments/e0i9w7/how_to_resample_nontimeseries_data_in_pandas_or/
+        df.set_index('x', inplace=True)
+        df = df.loc[~df.index.duplicated(), :]
+        new_index = np.linspace(600, 13e3, int(len(df)*0.1))
+        # df = df.reindex(df.index.union(new_index)).interpolate('linear').loc[new_index]
+        df = df.reindex(df.index.union(new_index))
+        print(df); exit()
+
+        df.reset_index(inplace=True)
+
+
+        # plt.scatter(X.flatten(), Y.flatten(), s=1e-4)
+        plt.scatter(X.flatten(), Y.flatten(), s=1e-5)
+        plt.scatter(df.x, df.y, s=1e-3)
+        # plt.show()
+        # print(len(df)); exit()
+
+        for alpha in [0.5, 1]:
+            popt, pcov = curve_fit(
+                attenuation, df.x, df.y,
+                bounds=(
+                    [0,        1, alpha-1e-3, 1500, band[0]],
+                    [2000,   np.inf, alpha+1e-3, 3000, band[1]]
+                ),
+            )
+            _x = np.arange(X.min(), X.max())
+            _y = attenuation(_x, *popt)
+
+            plt.plot(_x, _y, label=rf'$\alpha = {alpha}$')
+
+            print(f' Frequency band: {band[0]}-{band[1]} Hz'.center(80, '='))
+            print(f'Q     = {popt[0]:.0f}')
+            print(f'A0    = {popt[1]:.0f}')
+            print(f'alpha = {popt[2]:.1f}')
+            print(f'beta  = {popt[3]:.0f} m/s')
+
+
+        A_model, X_model, d_model = get_model(df.y.values, df.x.values)
+        plt.plot(d_model, A_model, label='ML', lw=2, c='r')
+        plt.legend()
+        plt.ylim(0, 1)
+        plt.xlim(0, 14e3)
+        plt.show()
+        print(); exit()
+
 
         for i, row in _meta.iterrows():
             y_true = Y[:, i]
