@@ -81,7 +81,8 @@ def main():
     c = tl.config.read(args.configfile)
 
     # Load amplitude data
-    df = pd.read_csv(c.asl.data_csv)
+    df = pd.read_csv(c.asl.data_csv, index_col='datetime', parse_dates=['datetime'])
+    df = df[c.asl.starttime:c.asl.endtime]
 
     # Output folder directory
     folderpath = tl.utils.create_folder(c.io.output_dir, f'ASL', c.io.overwrite)
@@ -127,8 +128,10 @@ def main():
     locs = np.array(locs)
 
     out = pd.DataFrame(locs, columns='x y z'.split())
+    out['datetime'] = df.index
     out['res'] = res
-    out['eventid'] = df.eventid
+    if 'eventid' in df.columns:
+        out['eventid'] = df.eventid
 
     out.to_csv(os.path.join(folderpath, 'locs.csv'), index=False)
     return
