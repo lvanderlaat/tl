@@ -126,7 +126,8 @@ def extract_time_domain(
 
 def _engineer_feature(df, transformations, pair_keys):
     def R(ratio):
-        return ratio
+        # return ratio
+        return lambertw(np.exp(np.log(ratio))).real
 
     def W(ratio):
         return lambertw(ratio).real

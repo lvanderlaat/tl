@@ -120,6 +120,7 @@ def main():
     # Fit the model
     logger.info('Training...')
     model.fit(X_train, y_train)
+
     alpha = model.alpha_
     logger.info(f'Best alpha: {model.alpha_}')
 
