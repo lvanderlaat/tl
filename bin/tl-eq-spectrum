@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+
+
+"""
+Computes the mean and standard deviation spectra for the earthquakes.
+This information can be used to assess frequency bands later.
+"""
+
+
+# Python Standard Library
+import os
+from itertools import repeat
+
+# Other dependencies
+import matplotlib.pyplot as plt
+import numpy as np
+import obspy
+import pandas as pd
+import tl
+
+# try:
+#     import ray.util.multiprocessing as multiprocessing
+# except:
+import multiprocessing
+
+from scipy.fft import rfft
+from scipy.signal.windows import tukey
+
+
+# Local files
+
+
+__author__ = 'Leonardo van der Laat'
+__email__  = 'laat@umich.edu'
+
+
+def get_spectrum(wfs_dir, eventid, station, channel, npts):
+    freqmin=0.1
+    freqmax=24
+    decimation_factor=2
+
+    st = obspy.read(os.path.join(wfs_dir, f'{eventid}.mseed'))
+    try:
+        tr = st.select(station=station, channel=channel)[0]
+        tr.detrend()
+        tr.filter('bandpass', freqmin=freqmin, freqmax=freqmax)
+        tr.decimate(int(decimation_factor))
+        data = tr.data[:npts]
+        print(tr.stats.starttime)
+    except:
+        data = np.full(npts, np.nan)
+    data *= tukey(data.shape[0], alpha=window_pad)
+    Sx = np.abs(rfft(data))
+    return Sx/Sx.max()
+
+
+def main():
+    # Parse arguments
+    args = tl.utils.parse_args()
+
+    # Parse configuration YAML file
+    c = tl.config.read(args.configfile)
+
+    # Output folder directory
+    folderpath = tl.utils.create_folder(c.io.output_dir, f'EQ_SPECTRA', c.io.overwrite)
+
+    # Read catalog
+    df = tl.catalog.read(c.dataset.catalog)
+
+    # Filter catalog
+    df = tl.catalog.filter(
+        df,
+        magnitude_min=c.dataset.magnitude_min,
+        magnitude_max=c.dataset.magnitude_max,
+        n_events=c.dataset.n_events
+    )
+
+    # Remove events that have no waveforms in directory
+    ids = [int(f.split('.')[0]) for f in os.listdir(c.dataset.wfs_dir)]
+    df = df[df.eventid.isin(ids)]
+
+    frequency = np.fft.rfftfreq(npts, delta)
+
+    args_parallel = zip(
+        repeat(c.dataset.wfs_dir), df.eventid, repeat(station), repeat(channel),
+        repeat(npts)
+    )
+    with multiprocessing.Pool(c.performance.max_workers) as pool:
+        Sxx = pool.starmap(get_spectrum, args_parallel)
+
+    Sxx = np.array([Sx for Sx in Sxx if len(Sx) == 501])
+
+    Sxx = np.stack(Sxx)
+    Sx_mean = np.nanmedian(Sxx, axis=0)
+    Sx_mean /= Sx_mean.max()
+
+    with open(os.path.join(folderpath, 'frequency.npy'), 'wb') as f:
+        np.save(f, frequency)
+    with open(os.path.join(folderpath, 'amplitude.npy'), 'wb') as f:
+        np.save(f, Sx_mean)
+
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot(111)
+    ax.set_xscale('log')
+    ax.set_xlim(1e-1, 15)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Normalized amplitude')
+    ax.plot(frequency, Sx_mean, lw=2, c='k')
+    fig.savefig(os.path.join(folderpath, 'fig.pdf'))
+    return
+
+
+if __name__ == '__main__':
+    npts = 50*20
+    delta = 1/50
+    window_pad = 0.05
+    station = 'UWE'
+    channel = 'HHZ'
+    main()

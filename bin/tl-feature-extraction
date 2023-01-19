@@ -199,7 +199,7 @@ def extract_tremor(c, inventory, stachas, filter_polynomials, columns):
         )
     # Unzip results
     _datetimes, _X = list(map(list, zip(*results)))
-    print('DOne with multiprocessing')
+    print('Done with multiprocessing')
 
     # Get rid of None results
     datetimes, X = [], []
