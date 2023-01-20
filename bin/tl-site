@@ -3,7 +3,10 @@
 
 """
 Determine site amplification correction factors.
-Based on Eibl et al. (2017)
+Based on Eibl et al. (2017) but with many earthquakes.
+
+Warning: this code is a bit adapted to the van der Laat in prep. study case,
+needs to be de-hardcoded.
 """
 
 
@@ -20,12 +23,32 @@ from scipy.optimize import curve_fit
 
 
 __author__ = 'Leonardo van der Laat'
-__email__  = 'laat@umich.edu'
+__email__ = 'laat@umich.edu'
+
+
+ALPHA = [1]
+COLOR = 'rb'
 
 
 def attenuation(x, Q, A0, alpha, beta, f):
     B = np.pi*f/Q/beta
     return A0*np.exp(-B*x)/x**alpha
+
+
+def get_latex_str(df):
+    df = df[df.freqmin == 3.4]['station cf'.split()]
+    df.columns = ['Station', 'Correction factor']
+
+    latex_code = df.style.hide(axis='index').set_precision(2).to_latex(
+        position='!htb',
+        position_float='centering',
+        hrules=True,
+        label='tab:correction_factors',
+        caption='Site amplification correction factors (3.4 - 4.5 Hz band)',
+    )
+    for rule in 'toprule midrule bottomrule'.split():
+        latex_code = latex_code.replace(rule, 'hline')
+    return latex_code
 
 
 def main():
@@ -37,6 +60,8 @@ def main():
 
     # Output folder directory
     folderpath = tl.utils.create_folder(c.io.output_dir, f'SITE', c.io.overwrite)
+
+    tl.utils.write_conf(c, folderpath)
 
     # Logger
     logger = tl.utils.get_logger()
@@ -58,11 +83,12 @@ def main():
         n_events=c.dataset.n_events
     )
 
-    # Earthqueke locations
+    # Earthquake locations
     x = df.x.values
     y = df.y.values
     z = df.z.values
 
+    # Source-receiver distance
     X = np.full((x.shape[0], len(channels)), np.nan)
     for i, row in channels.iterrows():
         X[:, i] = np.sqrt((x-row.x)**2 + (y-row.y)**2 + (z-row.z)**2)
@@ -82,40 +108,45 @@ def main():
         # Reduce
         n = len(_df)
         _df = _df[(_df.x > xmin) & (_df.x < xmax)]
-        _df = _df.groupby(_df.index//reduction_factor).median()
+        _df = _df.rolling(100, center=True).median()
+        _df.dropna(inplace=True)
 
-        fig = plt.figure()
+        mm = 1/25.6
+        fig = plt.figure(figsize=(150*mm, 130*mm))
+        fig.subplots_adjust(left=0.1, bottom=0.1, top=0.95, right=0.95)
         ax = fig.add_subplot(111)
         ax.set_title(f'{band[0]}-{band[1]} Hz')
-        ax.set_xlabel('Distance [m]')
+        ax.set_xlabel('Source-receiver distance [m]')
         ax.set_ylabel('Normalized amplitude')
-        ax.scatter(X.flatten(), Y.flatten(), s=1e-5)
-        ax.scatter(_df.x, _df.y, s=1e-2, c='r')
+        # ax.scatter(X.flatten(), Y.flatten(), s=1e-3)
+        ax.scatter(_df.x, _df.y, s=1e-3, c='k', rasterized=True)
 
-        for alpha in [1, 0.5]:
+        for i in range(1):
             popt, pcov = curve_fit(
                 attenuation, _df.x, _df.y,
                 bounds=(
-                    [0,        1, alpha-1e-3, 1500, band[0]],
-                    [200,   np.inf, alpha+1e-3, 3500, band[1]]
+                    [0,        1, ALPHA[i]-1e-3, 1500, band[0]],
+                    [200, np.inf, ALPHA[i]+1e-3, 3500, band[1]]
                 ),
             )
             _x = np.arange(X.min(), X.max())
             _y = attenuation(_x, *popt)
 
             label = (
-                f'Q = {popt[0]:.0f}, '
+                rf'$Q_f$ = {popt[0]:.0f}, '
                 rf'$A_0$ = {popt[1]:.0f}, '
                 rf'$\alpha$ = {popt[2]:.1f}, '
-                rf'$\beta$  = {popt[3]:.0f} m/s'
+                rf'$c$ = {popt[3]:.0f} m/s'
             )
-            ax.plot(_x, _y, label=label)
+            ax.plot(_x, _y, label=label, c=COLOR[i])
 
         plt.legend()
         plt.ylim(0, 1)
         plt.xlim(0, 14e3)
-        fig.savefig(os.path.join(folderpath, f'{band[0]}-{band[1]}.png'))
 
+        fig.savefig(os.path.join(folderpath, f'{band[0]}-{band[1]}.pdf'), dpi=300)
+
+        # Correction factor computation
         for i, row in _meta.iterrows():
             y_true = Y[:, i]
             y_pred = attenuation(X[:, i], *popt)
@@ -127,10 +158,12 @@ def main():
             ] = np.median(y_true/y_pred)
 
     meta.to_csv(os.path.join(folderpath, 'meta.csv'), index=True)
+    latex_code = get_latex_str(meta)
+    with open(os.path.join(folderpath, 'table.tex'), 'w') as _f:
+        _f.write(latex_code)
     return
 
 
 if __name__ == '__main__':
-    reduction_factor = 1
     xmin, xmax = 600, 13e3
     main()
