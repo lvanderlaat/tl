@@ -1,6 +1,6 @@
 # Transfer Learning Tremor Location
 
-This repository contains the code used in [van der Laat *et al.* (2023, in prep.)]() to locate the tremor from the Kilauea caldera collapse in 2018.
+This repository contains the code used in [van der Laat *et al.* (in prep.)]() to locate the tremor from the Kilauea caldera collapse in 2018.
 
 # Installation
 
