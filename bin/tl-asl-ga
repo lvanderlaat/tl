@@ -1,0 +1,221 @@
+#!/usr/bin/env python
+
+
+"""
+Amplitude source location via genetic algorithm
+"""
+
+
+# Python Standard Library
+import os
+
+from itertools import repeat
+
+# Other dependencies
+import numpy as np
+import pandas as pd
+import tl
+
+# try:
+#     import ray.util.multiprocessing as multiprocessing
+# except Exception as e:
+#     print(e)
+import multiprocessing
+
+from pymoo.algorithms.soo.nonconvex.ga import GA
+from pymoo.core.problem import ElementwiseProblem
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.optimize import minimize
+from pymoo.termination import get_termination
+
+# Local files
+
+
+__author__ = 'Leonardo van der Laat'
+__email__ = 'laat@umich.edu'
+
+
+class Problem(ElementwiseProblem):
+    def __init__(
+        self,
+        B=None,
+        alpha=None,
+        a=None,
+        x=None,
+        y=None,
+        z=None,
+        xl=None,
+        xu=None,
+    ):
+        self.B = B
+        self.alpha = alpha
+        self.a = a
+        self.x = x
+        self.y = y
+        self.z = z
+
+        super().__init__(
+            n_var=3,
+            n_obj=1,
+            n_ieq_constr=0,
+            xl=xl,
+            xu=xu
+        )
+
+    def _evaluate(self, X, out, *args, **kwargs):
+        out['F'] = [self.residual(X)]
+
+    def residual(self, X):
+        B = self.B
+        alpha = self.alpha
+        a = self.a
+        x = self.x
+        y = self.y
+        z = self.z
+
+        res = 0
+
+        n_stations = len(a)
+
+        for i in range(n_stations-1):
+            d_i = np.sqrt(
+                (X[0] - x[i])**2 + (X[1] - y[i])**2 + (X[2] - z[i])**2
+            )
+            for j in range(i+1, n_stations):
+                d_j = np.sqrt(
+                    (X[0] - x[j])**2 + (X[1] - y[j])**2 + (X[2] - z[j])**2
+                )
+                r_obs = a[i]/a[j]
+                r_calc = (np.exp(-B*d_i)/d_i**alpha) / \
+                         (np.exp(-B*d_j)/d_j**alpha)
+                res += (r_calc - r_obs)**2
+        return np.sqrt(res)
+
+
+def work(
+    B,
+    alpha,
+    a,
+    x,
+    y,
+    z,
+    xl,
+    xu,
+    algorithm,
+    termination,
+):
+    problem = Problem(
+        B=B,
+        alpha=alpha,
+        a=a,
+        x=x,
+        y=y,
+        z=z,
+        xl=xl,
+        xu=xu
+    )
+
+    result = minimize(
+        problem,
+        algorithm,
+        termination,
+        seed=1,
+        save_history=False,
+        verbose=False,
+    )
+
+    return result.X
+
+
+def main():
+    # Parse arguments
+    args = tl.utils.parse_args()
+
+    # Parse configuration YAML file
+    c = tl.config.read(args.configfile)
+
+    # Load amplitude data
+    # df = pd.read_csv(
+    #     c.asl.data_csv,
+    #     index_col='datetime',
+    #     parse_dates=['datetime']
+    # )
+    # df = df[c.asl.starttime:c.asl.endtime]
+
+    df = pd.read_csv(c.asl.data_csv)
+    # df = df[:36]
+
+    # Output folder directory
+    folderpath = tl.utils.create_folder(c.io.output_dir, 'ASL', c.io.overwrite)
+    tl.utils.write_conf(c, folderpath)
+
+    # Channels
+    channels = pd.read_csv(c.amplitude.channels_csv, comment='/')
+    channels = channels[channels.channel.str[-1] == 'Z']
+    channels.reset_index(inplace=True)
+
+    # features metadata
+    meta = tl.features.to_dataframe(channels, c.amplitude.bands)
+
+    # Read metadata
+    meta = pd.read_csv(c.asl.meta_csv)
+    meta = meta[
+        (meta.freqmin == c.asl.band[0]) & (meta.freqmax == c.asl.band[1])
+    ]
+
+    xmin = channels.x.min() - 2*c.asl.cellsize
+    xmax = channels.x.max() + 2*c.asl.cellsize
+    ymin = channels.y.min() - 2*c.asl.cellsize
+    ymax = channels.y.max() + 2*c.asl.cellsize
+    zmin = c.asl.zmin
+    zmax = c.asl.zmax
+    xl=np.array([xmin, ymin, zmin])
+    xu=np.array([xmax, ymax, zmax])
+
+    # Correct site effect
+    for i, row in meta.iterrows():
+        df[row.key] /= row.cf
+
+    B = np.pi*c.attenuation.f/c.attenuation.Q/c.attenuation.beta
+
+    # Algorithm
+    algorithm = GA(
+        pop_size=c.moo.pop_size,
+        n_offsprings=c.moo.n_offsprings,
+        crossover=SBX(**c.moo.sbx),
+        mutation=PM(**c.moo.pm),
+        eliminate_duplicate=c.moo.eliminate_duplicate
+    )
+
+    # Termination criteria
+    termination = get_termination('n_gen', c.moo.n_gen)
+
+    args_parallel = zip(
+        repeat(B),
+        repeat(c.attenuation.alpha),
+        df[meta.key].values,
+        repeat(meta.x.values),
+        repeat(meta.y.values),
+        repeat(meta.z.values),
+        repeat(xl),
+        repeat(xu),
+        repeat(algorithm),
+        repeat(termination),
+
+    )
+    with multiprocessing.Pool(c.performance.max_workers) as pool:
+        locs = pool.starmap(work, args_parallel)
+
+    locs = np.array(locs)
+
+    out = pd.DataFrame(locs, columns='x y z'.split())
+    if 'eventid' in df.columns:
+        out['eventid'] = df.eventid
+
+    out.to_csv(os.path.join(folderpath, 'locs.csv'), index=False)
+    return
+
+
+if __name__ == '__main__':
+    main()

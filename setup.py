@@ -19,6 +19,7 @@ setup(
     ],
     scripts          = [
         'bin/tl-asl',
+        'bin/tl-asl-ga',
         'bin/tl-clean',
         'bin/tl-feature-extraction',
         'bin/tl-feature-engineering',
