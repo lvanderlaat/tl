@@ -15,8 +15,8 @@ setup(
     author           = 'Leonardo van der Laat',
     author_email     = 'laat@umich.edu',
     packages         = ['tl'],
-    install_requires = [
-    ],
+    # install_requires = [
+    # ],
     scripts          = [
         'bin/tl-asl',
         'bin/tl-asl-ga',
@@ -31,5 +31,5 @@ setup(
         'bin/tl-site',
         'bin/tl-train',
     ],
-    zip_safe         = False
+    # zip_safe         = False
 )

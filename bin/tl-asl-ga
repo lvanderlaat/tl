@@ -124,6 +124,7 @@ def work(
         save_history=False,
         verbose=False,
     )
+    print(result.X)
 
     return result.X
 
