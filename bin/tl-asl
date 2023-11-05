@@ -10,18 +10,16 @@ Amplitude source location
 import os
 
 from itertools import repeat
-from linecache import getline
 
 # Other dependencies
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tl
 
-try:
-    import ray.util.multiprocessing as multiprocessing
-except:
-    import multiprocessing
+# try:
+#     import ray.util.multiprocessing as multiprocessing
+# except:
+import multiprocessing
 
 from numba import jit
 
@@ -29,7 +27,7 @@ from numba import jit
 
 
 __author__ = 'Leonardo van der Laat'
-__email__  = 'laat@umich.edu'
+__email__ = 'laat@umich.edu'
 
 
 @jit(nopython=True)
@@ -69,7 +67,8 @@ def work(
         loc = np.array([xxx[idx], yyy[idx], zzz[idx]])
         print(loc)
         return loc, res[idx]
-    except:
+    except Exception as e:
+        print(e)
         return np.full(3, np.nan), np.nan
 
 
@@ -81,11 +80,19 @@ def main():
     c = tl.config.read(args.configfile)
 
     # Load amplitude data
-    df = pd.read_csv(c.asl.data_csv, index_col='datetime', parse_dates=['datetime'])
-    df = df[c.asl.starttime:c.asl.endtime]
+    try:
+        df = pd.read_csv(
+            c.asl.data_csv,
+            index_col='datetime',
+            parse_dates=['datetime']
+        )
+        df = df[c.asl.starttime:c.asl.endtime]
+    except Exception as e:
+        print(e)
+        df = pd.read_csv(c.asl.data_csv)
 
     # Output folder directory
-    folderpath = tl.utils.create_folder(c.io.output_dir, f'ASL', c.io.overwrite)
+    folderpath = tl.utils.create_folder(c.io.output_dir, 'ASL', c.io.overwrite)
     tl.utils.write_conf(c, folderpath)
 
     # Channels

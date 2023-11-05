@@ -16,12 +16,13 @@ import numpy as np
 import pandas as pd
 import tl
 
-# try:
-#     import ray.util.multiprocessing as multiprocessing
-# except Exception as e:
-#     print(e)
-import multiprocessing
+try:
+    import ray.util.multiprocessing as multiprocessing
+except Exception as e:
+    print(e)
+    import multiprocessing
 
+from numba import jit
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.problem import ElementwiseProblem
 from pymoo.operators.crossover.sbx import SBX
@@ -34,6 +35,25 @@ from pymoo.termination import get_termination
 
 __author__ = 'Leonardo van der Laat'
 __email__ = 'laat@umich.edu'
+
+
+@jit(nopython=True)
+def residual(X, B, alpha, a, x, y, z):
+    res = 0
+    n_stations = len(a)
+    for i in range(n_stations - 1):
+        d_i = np.sqrt(
+            (X[0] - x[i])**2 + (X[1] - y[i])**2 + (X[2] - z[i])**2
+        )
+        for j in range(i + 1, n_stations):
+            d_j = np.sqrt(
+                (X[0] - x[j])**2 + (X[1] - y[j])**2 + (X[2] - z[j])**2
+            )
+            r_obs = a[i]/a[j]
+            r_calc = (np.exp(-B*d_i)/d_i**alpha) / \
+                     (np.exp(-B*d_j)/d_j**alpha)
+            res += (r_calc - r_obs)**2
+    return np.sqrt(res)
 
 
 class Problem(ElementwiseProblem):
@@ -64,39 +84,25 @@ class Problem(ElementwiseProblem):
         )
 
     def _evaluate(self, X, out, *args, **kwargs):
-        out['F'] = [self.residual(X)]
+        out['F'] = [
+            residual(
+                X,
+                self.B,
+                self.alpha,
+                self.a,
+                self.x,
+                self.y,
+                self.z,
 
-    def residual(self, X):
-        B = self.B
-        alpha = self.alpha
-        a = self.a
-        x = self.x
-        y = self.y
-        z = self.z
-
-        res = 0
-
-        n_stations = len(a)
-
-        for i in range(n_stations-1):
-            d_i = np.sqrt(
-                (X[0] - x[i])**2 + (X[1] - y[i])**2 + (X[2] - z[i])**2
             )
-            for j in range(i+1, n_stations):
-                d_j = np.sqrt(
-                    (X[0] - x[j])**2 + (X[1] - y[j])**2 + (X[2] - z[j])**2
-                )
-                r_obs = a[i]/a[j]
-                r_calc = (np.exp(-B*d_i)/d_i**alpha) / \
-                         (np.exp(-B*d_j)/d_j**alpha)
-                res += (r_calc - r_obs)**2
-        return np.sqrt(res)
+        ]
 
 
 def work(
     B,
     alpha,
     a,
+    eventid,
     x,
     y,
     z,
@@ -120,11 +126,20 @@ def work(
         problem,
         algorithm,
         termination,
-        seed=1,
+        seed=0,
         save_history=False,
         verbose=False,
     )
-    print(result.X)
+
+    print(eventid, int(result.X[0]), int(result.X[1]), int(result.X[2]))
+
+    # n_evals = np.array([e.evaluator.n_eval for e in result.history])
+    # opt = np.array([e.opt[0].F for e in result.history])
+
+    # plt.title("Convergence")
+    # plt.plot(n_evals, opt, "--")
+    # plt.yscale("log")
+    # plt.show()
 
     return result.X
 
@@ -137,15 +152,16 @@ def main():
     c = tl.config.read(args.configfile)
 
     # Load amplitude data
-    # df = pd.read_csv(
-    #     c.asl.data_csv,
-    #     index_col='datetime',
-    #     parse_dates=['datetime']
-    # )
-    # df = df[c.asl.starttime:c.asl.endtime]
-
-    df = pd.read_csv(c.asl.data_csv)
-    # df = df[:36]
+    try:
+        df = pd.read_csv(
+            c.asl.data_csv,
+            index_col='datetime',
+            parse_dates=['datetime']
+        )
+        df = df[c.asl.starttime:c.asl.endtime]
+    except Exception as e:
+        print(e)
+        df = pd.read_csv(c.asl.data_csv)
 
     # Output folder directory
     folderpath = tl.utils.create_folder(c.io.output_dir, 'ASL', c.io.overwrite)
@@ -171,8 +187,8 @@ def main():
     ymax = channels.y.max() + 2*c.asl.cellsize
     zmin = c.asl.zmin
     zmax = c.asl.zmax
-    xl=np.array([xmin, ymin, zmin])
-    xu=np.array([xmax, ymax, zmax])
+    xl = np.array([xmin, ymin, zmin])
+    xu = np.array([xmax, ymax, zmax])
 
     # Correct site effect
     for i, row in meta.iterrows():
@@ -196,6 +212,7 @@ def main():
         repeat(B),
         repeat(c.attenuation.alpha),
         df[meta.key].values,
+        df.eventid,
         repeat(meta.x.values),
         repeat(meta.y.values),
         repeat(meta.z.values),
