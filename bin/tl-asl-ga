@@ -163,6 +163,9 @@ def main():
         print(e)
         df = pd.read_csv(c.asl.data_csv)
 
+    if 'eventid' not in df.columns:
+        df['eventid'] = np.arange(len(df))
+
     # Output folder directory
     folderpath = tl.utils.create_folder(c.io.output_dir, 'ASL', c.io.overwrite)
     tl.utils.write_conf(c, folderpath)
@@ -172,13 +175,11 @@ def main():
     channels = channels[channels.channel.str[-1] == 'Z']
     channels.reset_index(inplace=True)
 
-    # features metadata
-    meta = tl.features.to_dataframe(channels, c.amplitude.bands)
-
     # Read metadata
     meta = pd.read_csv(c.asl.meta_csv)
     meta = meta[
-        (meta.freqmin == c.asl.band[0]) & (meta.freqmax == c.asl.band[1])
+        (meta.freqmin == c.asl.band[0]) & (meta.freqmax == c.asl.band[1]) &
+        (meta.station.isin(channels.station.unique()))
     ]
 
     xmin = channels.x.min() - 2*c.asl.cellsize
@@ -228,6 +229,7 @@ def main():
     locs = np.array(locs)
 
     out = pd.DataFrame(locs, columns='x y z'.split())
+    out['datetime'] = df.index
     if 'eventid' in df.columns:
         out['eventid'] = df.eventid
 
