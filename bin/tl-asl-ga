@@ -16,11 +16,11 @@ import numpy as np
 import pandas as pd
 import tl
 
-try:
-    import ray.util.multiprocessing as multiprocessing
-except Exception as e:
-    print(e)
-    import multiprocessing
+# try:
+#     import ray.util.multiprocessing as multiprocessing
+# except Exception as e:
+#     print(e)
+import multiprocessing
 
 from numba import jit
 from pymoo.algorithms.soo.nonconvex.ga import GA
